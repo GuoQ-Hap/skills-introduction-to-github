@@ -1,0 +1,59 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #FAFAFA;
+  color: #2d2d2d;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Page transition animation */
+@keyframes pageFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-transition {
+  animation: pageFadeIn 0.28s ease-out;
+}
+
+/* Ant Design sidebar override for light theme */
+.leang-sider .ant-menu-item-selected {
+  background: linear-gradient(90deg, rgba(245,124,0,0.10) 0%, rgba(245,124,0,0.04) 100%) !important;
+  border-right: 3px solid #F57C00 !important;
+}
+.leang-sider .ant-menu-item:hover {
+  background: rgba(245,124,0,0.06) !important;
+}
+.leang-sider .ant-layout-sider-trigger {
+  background: #fff !important;
+  color: #999 !important;
+  border-top: 1px solid #f0f0f0 !important;
+}

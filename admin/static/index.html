@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 后台管理系统</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5/dist/reset.min.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+#root { min-height: 100vh; }
+.layout { display: flex; min-height: 100vh; }
+.sider { width: 220px; background: #001529; color: #fff; padding-top: 16px; flex-shrink: 0; }
+.sider h2 { text-align: center; padding: 12px 0 24px; font-size: 18px; color: #fff; border-bottom: 1px solid #113; margin-bottom: 8px; }
+.menu-item { padding: 12px 24px; cursor: pointer; transition: all .2s; display: flex; align-items: center; gap: 8px; color: rgba(255,255,255,.65); }
+.menu-item:hover { background: #112a45; color: #fff; }
+.menu-item.active { background: #1677ff; color: #fff; }
+.content { flex: 1; padding: 24px; background: #f5f5f5; overflow-y: auto; }
+.card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+.card h3 { margin-bottom: 12px; font-size: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.stat-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border-radius: 8px; padding: 16px; }
+.stat-card.green { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+.stat-card.orange { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+.stat-card.blue { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+.stat-card .val { font-size: 28px; font-weight: bold; }
+.stat-card .label { font-size: 13px; opacity: .85; margin-top: 4px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+.badge-ok { background: #f6ffed; color: #389e0d; border: 1px solid #b7eb8f; }
+.badge-err { background: #fff2f0; color: #cf1322; border: 1px solid #ffa39e; }
+.badge-warn { background: #fffbe6; color: #d48806; border: 1px solid #ffe58f; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+th { background: #fafafa; font-weight: 600; }
+.btn { padding: 6px 16px; border: 1px solid #d9d9d9; border-radius: 6px; cursor: pointer; font-size: 13px; background: #fff; transition: all .2s; }
+.btn:hover { border-color: #1677ff; color: #1677ff; }
+.btn-primary { background: #1677ff; color: #fff; border-color: #1677ff; }
+.btn-primary:hover { background: #4096ff; }
+.btn-danger { color: #ff4d4f; border-color: #ff4d4f; }
+.btn-sm { padding: 3px 10px; font-size: 12px; }
+input, select, textarea { padding: 6px 10px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; width: 100%; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
+.form-row { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.form-row label { width: 120px; flex-shrink: 0; font-size: 13px; text-align: right; }
+.form-row .field { flex: 1; }
+.tag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; margin-right: 4px; background: #f0f5ff; color: #1d39c4; border: 1px solid #adc6ff; }
+.tabs { display: flex; gap: 0; border-bottom: 2px solid #f0f0f0; margin-bottom: 16px; }
+.tab { padding: 8px 20px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; font-size: 14px; }
+.tab.active { border-bottom-color: #1677ff; color: #1677ff; font-weight: 600; }
+.log-box { background: #1e1e1e; color: #d4d4d4; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 12px; padding: 12px; border-radius: 6px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+.log-box.live { max-height: 600px; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #52c41a; margin-right: 6px; animation: blink 1s infinite; }
+.live-dot.paused { background: #faad14; animation: none; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+.log-line { padding: 1px 0; }
+.log-line.log-error { color: #ff4d4f; }
+.log-line.log-warning { color: #faad14; }
+.log-line.log-info { color: #d4d4d4; }
+.log-line.log-debug { color: #8c8c8c; }
+.log-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.log-status { display: flex; align-items: center; font-size: 13px; margin-left: auto; color: #8c8c8c; }
+.pool-section { margin-bottom: 16px; }
+.pool-section h4 { margin-bottom: 8px; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.modal-box { background: #fff; border-radius: 8px; padding: 24px; width: 600px; max-height: 80vh; overflow-y: auto; }
+.flex-between { display: flex; justify-content: space-between; align-items: center; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script>
+const h = React.createElement;
+const { useState, useEffect, useRef, useCallback } = React;
+
+function api(path, opts) {
+  const url = path.startsWith('/') ? path : '/admin/api/' + path;
+  return fetch(url, opts).then(r => r.json()).catch(e => ({ error: String(e) }));
+}
+function apiPost(path, body) {
+  return api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+/* ═══════════ Dashboard ═══════════ */
+function Dashboard() {
+  const [data, setData] = useState(null);
+  const load = () => api('dashboard').then(setData);
+  useEffect(() => { load(); const t = setInterval(load, 60000); return () => clearInterval(t); }, []);
+  if (!data) return h('div', null, '加载中...');
+  const s = data.system || {};
+  const svc = data.services || [];
+  return h('div', null,
+    h('h2', { style: { marginBottom: 16 } }, '系统仪表盘'),
+    h('div', { className: 'grid' },
+      h('div', { className: 'stat-card' }, h('div', { className: 'val' }, s.cpu_percent + '%'), h('div', { className: 'label' }, 'CPU 使用率')),
+      h('div', { className: 'stat-card green' }, h('div', { className: 'val' }, s.memory_used_mb + 'MB'), h('div', { className: 'label' }, '进程内存 (' + s.memory_percent + '%)')),
+      h('div', { className: 'stat-card orange' }, h('div', { className: 'val' }, s.total_memory_percent + '%'), h('div', { className: 'label' }, '系统内存')),
+      h('div', { className: 'stat-card blue' }, h('div', { className: 'val' }, s.uptime_seconds ? Math.floor(s.uptime_seconds / 60) + 'min' : '-'), h('div', { className: 'label' }, '运行时间')),
+    ),
+    h('div', { className: 'card', style: { marginTop: 16 } },
+      h('h3', null, '服务健康状态'),
+      h('table', null,
+        h('thead', null, h('tr', null, h('th', null, '服务'), h('th', null, '状态'), h('th', null, '详情'))),
+        h('tbody', null, svc.map((v, i) =>
+          h('tr', { key: i },
+            h('td', null, v.name),
+            h('td', null, h('span', { className: 'badge ' + (v.status === 'healthy' ? 'badge-ok' : v.status === 'unconfigured' ? 'badge-warn' : 'badge-err') }, v.status)),
+            h('td', null, v.message || '-')
+          )
+        ))
+      )
+    ),
+    h('div', { className: 'card' },
+      h('h3', null, '系统信息'),
+      h('table', null, h('tbody', null,
+        ['platform', 'python_version', 'pid', 'thread_count', 'disk_usage_percent', 'cpu_count'].map(k =>
+          h('tr', { key: k }, h('td', { style: { width: 180, fontWeight: 600 } }, k), h('td', null, String(s[k] ?? '-')))
+        )
+      ))
+    )
+  );
+}
+
+/* ═══════════ Config ═══════════ */
+function ConfigManager() {
+  const [cats, setCats] = useState([]);
+  const [dirty, setDirty] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api('config/presets').then(d => Array.isArray(d) && setCats(d)); }, []);
+  const onChange = (key, val) => setDirty(p => ({ ...p, [key]: val }));
+  const save = () => {
+    const items = Object.entries(dirty).map(([key, value]) => ({ key, value }));
+    if (!items.length) return;
+    setSaving(true);
+    apiPost('config/save', { items }).then(r => { setMsg(r.success ? '保存成功 (' + r.count + '项)' : '保存失败'); setDirty({}); setSaving(false); setTimeout(() => setMsg(''), 3000); });
+  };
+  return h('div', null,
+    h('div', { className: 'flex-between', style: { marginBottom: 16 } },
+      h('h2', null, '配置管理'),
+      h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
+        msg && h('span', { style: { color: '#389e0d', fontSize: 13 } }, msg),
+        h('button', { className: 'btn btn-primary', onClick: save, disabled: saving || !Object.keys(dirty).length }, saving ? '保存中...' : '保存修改 (' + Object.keys(dirty).length + ')')
+      )
+    ),
+    cats.map(cat => h('div', { key: cat.category, className: 'card' },
+      h('h3', null, cat.title),
+      cat.groups && cat.groups.map(g => h('div', { key: g.group, style: { marginBottom: 16 } },
+        h('div', { style: { fontWeight: 600, marginBottom: 8, color: '#555' } }, g.group),
+        g.items && g.items.map(item =>
+          h('div', { key: item.env_key, className: 'form-row' },
+            h('label', null, item.label),
+            h('div', { className: 'field' },
+              item.type === 'select'
+                ? h('select', { value: dirty[item.env_key] ?? item.value ?? '', onChange: e => onChange(item.env_key, e.target.value) },
+                    h('option', { value: '' }, '-- 选择 --'),
+                    (item.options || []).map(o => h('option', { key: o, value: o }, o))
+                  )
+                : h('input', { type: item.type === 'password' ? 'password' : 'text', value: dirty[item.env_key] ?? item.value ?? '', placeholder: item.placeholder || '', onChange: e => onChange(item.env_key, e.target.value) })
+            )
+          )
+        )
+      ))
+    ))
+  );
+}
+
+/* ═══════════ Logs ═══════════ */
+function classifyLine(line) {
+  if (/\bERROR\b/i.test(line)) return 'log-error';
+  if (/\bWARNING\b/i.test(line)) return 'log-warning';
+  if (/\bDEBUG\b/i.test(line)) return 'log-debug';
+  return 'log-info';
+}
+function stripAnsi(s) { return s.replace(/\x1b\[[0-9;]*m/g, ''); }
+
+function LogViewer() {
+  const [tab, setTab] = useState('static');
+  const [files, setFiles] = useState([]);
+  const [sel, setSel] = useState('');
+  const [lines, setLines] = useState([]);
+  const [search, setSearch] = useState('');
+  const [level, setLevel] = useState('');
+
+  const [liveLines, setLiveLines] = useState([]);
+  const [livePaused, setLivePaused] = useState(false);
+  const [liveLevel, setLiveLevel] = useState('');
+  const [liveN, setLiveN] = useState(200);
+  const liveRef = useRef(null);
+  const timerRef = useRef(null);
+  const autoScrollRef = useRef(true);
+
+  useEffect(() => {
+    api('logs/files').then(d => { if (Array.isArray(d)) { setFiles(d); if (d.length) setSel(d[0].name); } });
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'static' && sel) {
+      api('logs/read?filename=' + sel + '&lines=300' + (search ? '&search=' + encodeURIComponent(search) : '') + (level ? '&level=' + level : ''))
+        .then(d => setLines(d.lines || []));
+    }
+  }, [tab, sel, search, level]);
+
+  useEffect(() => {
+    if (tab !== 'live') { clearInterval(timerRef.current); return; }
+    const poll = () => {
+      if (livePaused || !sel) return;
+      api('logs/tail?filename=' + sel + '&n=' + liveN).then(d => {
+        if (Array.isArray(d)) {
+          const cleaned = d.map(stripAnsi);
+          setLiveLines(cleaned);
+        }
+      });
+    };
+    poll();
+    timerRef.current = setInterval(poll, 2000);
+    return () => clearInterval(timerRef.current);
+  }, [tab, sel, livePaused, liveN]);
+
+  useEffect(() => {
+    if (autoScrollRef.current && liveRef.current) {
+      liveRef.current.scrollTop = liveRef.current.scrollHeight;
+    }
+  }, [liveLines]);
+
+  const handleLiveScroll = () => {
+    if (!liveRef.current) return;
+    const el = liveRef.current;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    autoScrollRef.current = atBottom;
+  };
+
+  const filteredLive = liveLevel
+    ? liveLines.filter(l => l.toUpperCase().includes(liveLevel))
+    : liveLines;
+
+  const reload = () => {
+    if (tab === 'static' && sel) {
+      api('logs/read?filename=' + sel + '&lines=300' + (search ? '&search=' + encodeURIComponent(search) : '') + (level ? '&level=' + level : ''))
+        .then(d => setLines(d.lines || []));
+    }
+  };
+
+  return h('div', null,
+    h('h2', { style: { marginBottom: 16 } }, '日志管理'),
+    h('div', { className: 'tabs' },
+      h('div', { className: 'tab' + (tab === 'static' ? ' active' : ''), onClick: () => setTab('static') }, '日志查看'),
+      h('div', { className: 'tab' + (tab === 'live' ? ' active' : ''), onClick: () => setTab('live') },
+        tab === 'live' && h('span', { className: 'live-dot' + (livePaused ? ' paused' : '') }),
+        '实时日志'
+      ),
+    ),
+
+    tab === 'static' && h('div', { className: 'card' },
+      h('div', { className: 'log-toolbar' },
+        h('select', { value: sel, onChange: e => setSel(e.target.value), style: { width: 200 } },
+          files.map(f => h('option', { key: f.name, value: f.name }, f.name + ' (' + f.size_kb + 'KB)'))
+        ),
+        h('input', { placeholder: '搜索关键词...', value: search, onChange: e => setSearch(e.target.value), style: { width: 200 } }),
+        h('select', { value: level, onChange: e => setLevel(e.target.value), style: { width: 120 } },
+          h('option', { value: '' }, '全部级别'),
+          ['DEBUG','INFO','WARNING','ERROR'].map(l => h('option', { key: l, value: l }, l))
+        ),
+        h('button', { className: 'btn btn-sm', onClick: reload }, '刷新'),
+        h('span', { className: 'log-status' }, lines.length + ' 行'),
+      ),
+      h('div', { className: 'log-box' },
+        lines.length > 0
+          ? lines.map((l, i) => {
+              const clean = stripAnsi(l);
+              return h('div', { key: i, className: 'log-line ' + classifyLine(clean) }, clean);
+            })
+          : '暂无日志'
+      )
+    ),
+
+    tab === 'live' && h('div', { className: 'card' },
+      h('div', { className: 'log-toolbar' },
+        h('select', { value: sel, onChange: e => setSel(e.target.value), style: { width: 200 } },
+          files.map(f => h('option', { key: f.name, value: f.name }, f.name))
+        ),
+        h('select', { value: liveLevel, onChange: e => setLiveLevel(e.target.value), style: { width: 120 } },
+          h('option', { value: '' }, '全部级别'),
+          ['DEBUG','INFO','WARNING','ERROR'].map(l => h('option', { key: l, value: l }, l))
+        ),
+        h('select', { value: liveN, onChange: e => setLiveN(Number(e.target.value)), style: { width: 100 } },
+          [100, 200, 500, 1000].map(n => h('option', { key: n, value: n }, '尾部 ' + n + ' 行'))
+        ),
+        h('button', {
+          className: 'btn btn-sm' + (livePaused ? '' : ' btn-danger'),
+          onClick: () => setLivePaused(p => !p)
+        }, livePaused ? '恢复' : '暂停'),
+        h('button', { className: 'btn btn-sm', onClick: () => { autoScrollRef.current = true; if (liveRef.current) liveRef.current.scrollTop = liveRef.current.scrollHeight; } }, '滚到底部'),
+        h('span', { className: 'log-status' },
+          h('span', { className: 'live-dot' + (livePaused ? ' paused' : '') }),
+          livePaused ? '已暂停' : '每 2s 刷新',
+          ' | ' + filteredLive.length + ' 行'
+        ),
+      ),
+      h('div', { className: 'log-box live', ref: liveRef, onScroll: handleLiveScroll },
+        filteredLive.length > 0
+          ? filteredLive.map((l, i) => h('div', { key: i, className: 'log-line ' + classifyLine(l) }, l))
+          : '等待日志...'
+      )
+    )
+  );
+}
+
+/* ═══════════ Models ═══════════ */
+function ModelManager() {
+  const [models, setModels] = useState([]);
+  const [presets, setPresets] = useState([]);
+  const [tf, setTf] = useState({ provider: '', model: '', prompt: '你好，请介绍一下你自己', api_key: '', base_url: '' });
+  const [result, setResult] = useState(null);
+  const [testing, setTesting] = useState(false);
+  useEffect(() => { api('models/list').then(d => Array.isArray(d) && setModels(d)); api('models/presets').then(d => Array.isArray(d) && setPresets(d)); }, []);
+  const test = () => { setTesting(true); setResult(null); apiPost('models/test', tf).then(r => { setResult(r); setTesting(false); }); };
+  const fillPreset = (p) => setTf(v => ({ ...v, provider: p.provider, model: p.model }));
+  return h('div', null,
+    h('h2', { style: { marginBottom: 16 } }, '模型管理'),
+    h('div', { className: 'card' },
+      h('h3', null, '已配置模型'),
+      h('table', null,
+        h('thead', null, h('tr', null, h('th', null, '提供商'), h('th', null, '模型'), h('th', null, 'Base URL'), h('th', null, '状态'))),
+        h('tbody', null, models.map((m, i) => h('tr', { key: i }, h('td', null, m.provider_name), h('td', null, m.model), h('td', null, m.base_url), h('td', null, h('span', { className: 'badge ' + (m.configured ? 'badge-ok' : 'badge-err') }, m.configured ? '已配置' : '未配置')))))
+      )
+    ),
+    h('div', { className: 'card' },
+      h('h3', null, '模型测试'),
+      h('div', { className: 'form-row' }, h('label', null, '提供商'), h('div', { className: 'field' }, h('select', { value: tf.provider, onChange: e => setTf(v => ({...v, provider: e.target.value})) }, h('option', { value: '' }, '选择'), ['dashscope','deepseek','openai','anthropic','zhipu','moonshot','sti','custom'].map(p => h('option', { key: p, value: p }, p))))),
+      h('div', { className: 'form-row' }, h('label', null, '模型'), h('div', { className: 'field' }, h('input', { value: tf.model, onChange: e => setTf(v => ({...v, model: e.target.value})) }))),
+      h('div', { className: 'form-row' }, h('label', null, 'API Key'), h('div', { className: 'field' }, h('input', { type: 'password', value: tf.api_key, onChange: e => setTf(v => ({...v, api_key: e.target.value})), placeholder: '留空使用默认' }))),
+      h('div', { className: 'form-row' }, h('label', null, 'Base URL'), h('div', { className: 'field' }, h('input', { value: tf.base_url, onChange: e => setTf(v => ({...v, base_url: e.target.value})), placeholder: '留空使用默认' }))),
+      h('div', { className: 'form-row' }, h('label', null, '提示词'), h('div', { className: 'field' }, h('input', { value: tf.prompt, onChange: e => setTf(v => ({...v, prompt: e.target.value})) }))),
+      h('div', { style: { textAlign: 'right', marginTop: 8 } }, h('button', { className: 'btn btn-primary', onClick: test, disabled: testing }, testing ? '测试中...' : '发送测试')),
+      result && h('div', { style: { marginTop: 12, padding: 12, background: result.success ? '#f6ffed' : '#fff2f0', borderRadius: 6 } },
+        h('div', null, h('strong', null, result.success ? 'OK' : 'FAIL'), ' | ', result.model || '', ' | ', (result.elapsed_seconds || 0) + 's'),
+        h('div', { style: { marginTop: 4, whiteSpace: 'pre-wrap', fontSize: 13 } }, result.response || result.error || '')
+      )
+    ),
+    h('div', { className: 'card' },
+      h('h3', null, '预设大模型列表'),
+      h('table', null,
+        h('thead', null, h('tr', null, h('th', null, '提供商'), h('th', null, '模型'), h('th', null, '类型'), h('th', null, '上下文'), h('th', null, '标签'), h('th', null, ''))),
+        h('tbody', null, presets.filter(p => p.type === 'chat').map((p, i) => h('tr', { key: i },
+          h('td', null, p.provider_name), h('td', null, p.model), h('td', null, p.type), h('td', null, (p.context / 1000) + 'K'),
+          h('td', null, (p.tags || []).map(t => h('span', { key: t, className: 'tag' }, t))),
+          h('td', null, h('button', { className: 'btn btn-sm', onClick: () => fillPreset(p) }, '测试'))
+        )))
+      )
+    )
+  );
+}
+
+/* ═══════════ ModelPool ═══════════ */
+function ModelPool() {
+  const [pool, setPool] = useState(null);
+  const load = () => api('pool/status').then(setPool);
+  useEffect(() => { load(); }, []);
+  const testAll = () => apiPost('pool/test-all', {}).then(() => { setTimeout(load, 2000); setTimeout(load, 8000); setTimeout(load, 15000); });
+  const retest = (p, m) => apiPost('pool/retest', { provider: p, model: m }).then(load);
+  const setPrimary = (p, m) => apiPost('pool/set-primary', { provider: p, model: m }).then(load);
+  const addStandby = (p, m) => apiPost('pool/add-standby', { provider: p, model: m }).then(load);
+  const removeStandby = (p, m) => apiPost('pool/remove-standby', { provider: p, model: m }).then(load);
+  if (!pool) return h('div', null, '加载中...');
+  const renderRow = (m, actions) => h('tr', { key: m.provider + ':' + m.model },
+    h('td', null, m.provider_name || m.provider), h('td', null, m.model),
+    h('td', null, h('span', { className: 'badge ' + (m.status === 'ok' ? 'badge-ok' : 'badge-err') }, m.status)),
+    h('td', null, m.latency ? m.latency + 's' : '-'),
+    h('td', null, m.tested_at ? m.tested_at.slice(5, 19) : '-'),
+    h('td', null, ...actions)
+  );
+  return h('div', null,
+    h('div', { className: 'flex-between', style: { marginBottom: 16 } },
+      h('h2', null, '模型池管理'),
+      h('button', { className: 'btn btn-primary', onClick: testAll }, '全量重测')
+    ),
+    pool.primary && h('div', { className: 'card pool-section' },
+      h('h4', null, '主模型'),
+      h('table', null, h('thead', null, h('tr', null, h('th', null, '提供商'), h('th', null, '模型'), h('th', null, '状态'), h('th', null, '延迟'), h('th', null, '测试时间'), h('th', null, '操作'))),
+        h('tbody', null, renderRow(pool.primary, [h('button', { key: 'r', className: 'btn btn-sm', onClick: () => retest(pool.primary.provider, pool.primary.model) }, '重测')])))
+    ),
+    h('div', { className: 'card pool-section' },
+      h('h4', null, '备用池 (' + (pool.standby || []).length + ')'),
+      pool.standby && pool.standby.length ? h('table', null, h('thead', null, h('tr', null, h('th', null, '提供商'), h('th', null, '模型'), h('th', null, '状态'), h('th', null, '延迟'), h('th', null, '测试时间'), h('th', null, '操作'))),
+        h('tbody', null, pool.standby.map(m => renderRow(m, [
+          h('button', { key: 'p', className: 'btn btn-sm', onClick: () => setPrimary(m.provider, m.model), style: { marginRight: 4 } }, '设为主模型'),
+          h('button', { key: 'd', className: 'btn btn-sm btn-danger', onClick: () => removeStandby(m.provider, m.model) }, '移除')
+        ])))
+      ) : h('div', { style: { color: '#999', padding: 12 } }, '暂无备用模型')
+    ),
+    h('div', { className: 'card pool-section' },
+      h('h4', null, '失败列表 (' + (pool.failed || []).length + ')'),
+      pool.failed && pool.failed.length ? h('table', null, h('thead', null, h('tr', null, h('th', null, '提供商'), h('th', null, '模型'), h('th', null, '状态'), h('th', null, '延迟'), h('th', null, '测试时间'), h('th', null, '操作'))),
+        h('tbody', null, pool.failed.map(m => renderRow(m, [
+          h('button', { key: 'r', className: 'btn btn-sm', onClick: () => retest(m.provider, m.model), style: { marginRight: 4 } }, '重测'),
+          h('button', { key: 'a', className: 'btn btn-sm', onClick: () => addStandby(m.provider, m.model) }, '加入备用')
+        ])))
+      ) : h('div', { style: { color: '#999', padding: 12 } }, '无失败模型')
+    ),
+    pool.last_full_test && h('div', { style: { color: '#999', fontSize: 12, textAlign: 'right' } }, '上次全量测试: ' + pool.last_full_test)
+  );
+}
+
+/* ═══════════ Database ═══════════ */
+function DatabaseManager() {
+  const [conns, setConns] = useState([]);
+  const [sql, setSql] = useState('SELECT 1');
+  const [dbType, setDbType] = useState('mysql');
+  const [result, setResult] = useState(null);
+  const [tables, setTables] = useState([]);
+  useEffect(() => { api('db/connections').then(d => Array.isArray(d) && setConns(d)); api('db/tables').then(d => Array.isArray(d) && setTables(d)); }, []);
+  const exec = () => apiPost('db/execute', { sql, db_type: dbType }).then(setResult);
+  return h('div', null,
+    h('h2', { style: { marginBottom: 16 } }, '数据库管理'),
+    h('div', { className: 'card' },
+      h('h3', null, '连接列表'),
+      h('table', null,
+        h('thead', null, h('tr', null, h('th', null, '名称'), h('th', null, '类型'), h('th', null, '主机'), h('th', null, '端口'), h('th', null, '数据库'))),
+        h('tbody', null, conns.map((c, i) => h('tr', { key: i }, h('td', null, c.name), h('td', null, c.type), h('td', null, c.host), h('td', null, c.port), h('td', null, c.database))))
+      )
+    ),
+    h('div', { className: 'card' },
+      h('h3', null, 'SQL 执行'),
+      h('div', { style: { display: 'flex', gap: 8, marginBottom: 8 } },
+        h('select', { value: dbType, onChange: e => setDbType(e.target.value), style: { width: 150 } }, h('option', { value: 'mysql' }, 'MySQL'), h('option', { value: 'doris' }, 'Doris (STI)')),
+        h('button', { className: 'btn btn-primary', onClick: exec }, '执行'),
+      ),
+      h('textarea', { value: sql, onChange: e => setSql(e.target.value), rows: 4, style: { fontFamily: 'monospace' } }),
+      result && h('div', { style: { marginTop: 12 } },
+        result.success
+          ? h('div', null, h('div', { style: { marginBottom: 4, color: '#389e0d' } }, '成功, ' + (result.row_count || 0) + ' 行'),
+              result.data && result.data.length > 0 && h('table', null,
+                h('thead', null, h('tr', null, Object.keys(result.data[0]).map(k => h('th', { key: k }, k)))),
+                h('tbody', null, result.data.slice(0, 50).map((row, i) => h('tr', { key: i }, Object.values(row).map((v, j) => h('td', { key: j }, String(v ?? ''))))))
+              ))
+          : h('div', { style: { color: '#cf1322' } }, result.error)
+      )
+    ),
+    tables.length > 0 && h('div', { className: 'card' },
+      h('h3', null, '表列表'),
+      h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } }, tables.map(t => h('span', { key: t, className: 'tag', style: { cursor: 'pointer' }, onClick: () => setSql('SELECT * FROM ' + t + ' LIMIT 10') }, t)))
+    )
+  );
+}
+
+/* ═══════════ Memory ═══════════ */
+function MemoryManager() {
+  const [tab, setTab] = useState('all');
+  const [stats, setStats] = useState({});
+  const [list, setList] = useState({ items: [], total: 0 });
+  const [sessions, setSessions] = useState({ items: [], total: 0 });
+  const [recallQ, setRecallQ] = useState('');
+  const [recallRes, setRecallRes] = useState([]);
+  const [filter, setFilter] = useState({ module: '', keyword: '', page: 1 });
+  const [detail, setDetail] = useState(null);
+
+  useEffect(() => { api('memory/stats').then(setStats); }, []);
+  useEffect(() => {
+    if (tab === 'all') {
+      const q = new URLSearchParams({ page: filter.page, page_size: 20 });
+      if (filter.module) q.set('module', filter.module);
+      if (filter.keyword) q.set('keyword', filter.keyword);
+      api('memory/list?' + q).then(d => setList({ items: d.items || d.data || [], total: d.total || 0 }));
+    } else if (tab === 'sessions') {
+      api('memory/sessions?page=1&page_size=50' + (filter.module ? '&module=' + filter.module : '')).then(d => setSessions({ items: d.items || d.sessions || d.data || [], total: d.total || 0 }));
+    }
+  }, [tab, filter]);
+
+  const doRecall = () => { if (!recallQ.trim()) return; api('memory/recall?query=' + encodeURIComponent(recallQ) + '&limit=10').then(d => setRecallRes(Array.isArray(d) ? d : d.items || [])); };
+  const showDetail = (id) => api('memory/detail/' + id).then(d => setDetail(d));
+
+  return h('div', null,
+    h('h2', { style: { marginBottom: 16 } }, '记忆管理'),
+    h('div', { className: 'grid', style: { marginBottom: 16 } },
+      h('div', { className: 'stat-card' }, h('div', { className: 'val' }, stats.total_memories || 0), h('div', { className: 'label' }, '总记忆数')),
+      h('div', { className: 'stat-card green' }, h('div', { className: 'val' }, stats.total_sessions || 0), h('div', { className: 'label' }, '会话数')),
+      h('div', { className: 'stat-card blue' }, h('div', { className: 'val' }, (stats.modules || []).length), h('div', { className: 'label' }, '模块数')),
+    ),
+    h('div', { className: 'tabs' },
+      h('div', { className: 'tab' + (tab === 'all' ? ' active' : ''), onClick: () => setTab('all') }, '全部记忆'),
+      h('div', { className: 'tab' + (tab === 'sessions' ? ' active' : ''), onClick: () => setTab('sessions') }, '会话列表'),
+      h('div', { className: 'tab' + (tab === 'recall' ? ' active' : ''), onClick: () => setTab('recall') }, '深度回忆'),
+    ),
+    h('div', { className: 'card' },
+      tab === 'all' && h('div', null,
+        h('div', { style: { display: 'flex', gap: 8, marginBottom: 12 } },
+          h('select', { value: filter.module, onChange: e => setFilter(f => ({ ...f, module: e.target.value, page: 1 })), style: { width: 120 } }, h('option', { value: '' }, '全部模块'), h('option', { value: 'sti' }, 'STI'), h('option', { value: 'leang' }, 'Leang')),
+          h('input', { placeholder: '关键词搜索', value: filter.keyword, onChange: e => setFilter(f => ({ ...f, keyword: e.target.value, page: 1 })), style: { width: 200 } }),
+        ),
+        h('table', null,
+          h('thead', null, h('tr', null, h('th', null, 'ID'), h('th', null, '模块'), h('th', null, '会话'), h('th', null, '用户问题'), h('th', null, '时间'), h('th', null, ''))),
+          h('tbody', null, (list.items || []).map(m => h('tr', { key: m.id },
+            h('td', null, m.id), h('td', null, h('span', { className: 'tag' }, m.module)), h('td', null, (m.session_id || '').slice(0, 8)),
+            h('td', null, (m.user_query || '').slice(0, 60)), h('td', null, (m.created_at || '').slice(5, 19)),
+            h('td', null, h('button', { className: 'btn btn-sm', onClick: () => showDetail(m.id) }, '详情'))
+          )))
+        ),
+        h('div', { style: { marginTop: 8, textAlign: 'center' } },
+          h('button', { className: 'btn btn-sm', disabled: filter.page <= 1, onClick: () => setFilter(f => ({ ...f, page: f.page - 1 })) }, '上一页'),
+          h('span', { style: { margin: '0 12px', fontSize: 13 } }, '第 ' + filter.page + ' 页'),
+          h('button', { className: 'btn btn-sm', onClick: () => setFilter(f => ({ ...f, page: f.page + 1 })) }, '下一页'),
+        )
+      ),
+      tab === 'sessions' && h('div', null,
+        h('table', null,
+          h('thead', null, h('tr', null, h('th', null, '会话ID'), h('th', null, '模块'), h('th', null, '条数'), h('th', null, '最近活动'))),
+          h('tbody', null, (sessions.items || []).map((s, i) => h('tr', { key: i },
+            h('td', null, (s.session_id || '').slice(0, 12) + '...'), h('td', null, h('span', { className: 'tag' }, s.module)),
+            h('td', null, s.count || s.memory_count || 0), h('td', null, (s.last_active || s.updated_at || '').slice(5, 19))
+          )))
+        )
+      ),
+      tab === 'recall' && h('div', null,
+        h('div', { style: { display: 'flex', gap: 8, marginBottom: 12 } },
+          h('input', { placeholder: '输入要回忆的内容...', value: recallQ, onChange: e => setRecallQ(e.target.value), style: { flex: 1 }, onKeyDown: e => e.key === 'Enter' && doRecall() }),
+          h('button', { className: 'btn btn-primary', onClick: doRecall }, '深度回忆'),
+        ),
+        recallRes.length > 0 && h('table', null,
+          h('thead', null, h('tr', null, h('th', null, '模块'), h('th', null, '问题'), h('th', null, '回复摘要'), h('th', null, '时间'))),
+          h('tbody', null, recallRes.map((r, i) => h('tr', { key: i },
+            h('td', null, h('span', { className: 'tag' }, r.module)), h('td', null, (r.user_query || '').slice(0, 50)),
+            h('td', null, (r.assistant_response || '').slice(0, 60)), h('td', null, (r.created_at || '').slice(5, 19))
+          )))
+        )
+      )
+    ),
+    detail && h('div', { className: 'modal-overlay', onClick: () => setDetail(null) },
+      h('div', { className: 'modal-box', onClick: e => e.stopPropagation() },
+        h('div', { className: 'flex-between', style: { marginBottom: 16 } }, h('h3', null, '记忆详情 #' + detail.id), h('button', { className: 'btn btn-sm', onClick: () => setDetail(null) }, 'X')),
+        h('table', null, h('tbody', null,
+          ['module', 'session_id', 'user_query', 'assistant_response', 'intent', 'sql', 'matched_tables', 'sources', 'created_at'].map(k =>
+            h('tr', { key: k }, h('td', { style: { width: 140, fontWeight: 600, verticalAlign: 'top' } }, k),
+              h('td', { style: { whiteSpace: 'pre-wrap', maxWidth: 400, wordBreak: 'break-all' } }, typeof detail[k] === 'object' ? JSON.stringify(detail[k], null, 2) : String(detail[k] ?? '-'))
+            )
+          )
+        ))
+      )
+    )
+  );
+}
+
+/* ═══════════ Routes ═══════════ */
+function RouteList() {
+  const [routes, setRoutes] = useState([]);
+  useEffect(() => { api('routes').then(d => Array.isArray(d) && setRoutes(d)); }, []);
+  return h('div', null,
+    h('h2', { style: { marginBottom: 16 } }, 'API 路由列表'),
+    h('div', { className: 'card' },
+      h('table', null,
+        h('thead', null, h('tr', null, h('th', null, '路径'), h('th', null, '方法'), h('th', null, '名称'))),
+        h('tbody', null, routes.map((r, i) => h('tr', { key: i }, h('td', null, r.path), h('td', null, (r.methods || []).join(', ')), h('td', null, r.name))))
+      )
+    )
+  );
+}
+
+/* ═══════════ App ═══════════ */
+const pages = {
+  dashboard: { label: '仪表盘', icon: '📊', comp: Dashboard },
+  config: { label: '配置管理', icon: '⚙️', comp: ConfigManager },
+  models: { label: '模型管理', icon: '🤖', comp: ModelManager },
+  pool: { label: '模型池', icon: '🔄', comp: ModelPool },
+  memory: { label: '记忆管理', icon: '🧠', comp: MemoryManager },
+  logs: { label: '日志管理', icon: '📋', comp: LogViewer },
+  database: { label: '数据库', icon: '💾', comp: DatabaseManager },
+  routes: { label: 'API 路由', icon: '🔗', comp: RouteList },
+};
+
+function App() {
+  const [page, setPage] = useState('dashboard');
+  const Comp = pages[page] ? pages[page].comp : Dashboard;
+  return h('div', { className: 'layout' },
+    h('div', { className: 'sider' },
+      h('h2', null, 'AI Admin'),
+      Object.entries(pages).map(([k, v]) =>
+        h('div', { key: k, className: 'menu-item' + (page === k ? ' active' : ''), onClick: () => setPage(k) }, v.icon, ' ', v.label)
+      )
+    ),
+    h('div', { className: 'content' }, h(Comp))
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>

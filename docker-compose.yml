@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # ── 后端 API 服务 ──
+  app:
+    build: .
+    container_name: ric-ai
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - SEARCH_TERM_BASE_DIR=/mnt/search_term_results
+    volumes:
+      - ./logs:/app/logs
+      - search_term_data:/mnt/search_term_results
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ── Nginx 前端 + 反向代理 ──
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    container_name: ric-nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  search_term_data:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//10.0.10.10/DASharedFiles/MSKU相关性判断/搜索词相关性/3_搜索词相关性结果"
+      o: "addr=10.0.10.10,username=guest,password=,file_mode=0444,dir_mode=0555,iocharset=utf8"
