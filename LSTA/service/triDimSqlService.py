@@ -85,6 +85,7 @@ def build_diagnostic_count_sql(
     dims: Optional[List[str]] = None,
     thresholds: Optional[Dict[str, Any]] = None,
     row_filter: bool = True,
+    sales_apartment: Optional[str] = None,
 ) -> str:
     th = TriDimThresholds.merge(
         thresholds if isinstance(thresholds, dict) else None
@@ -94,6 +95,9 @@ def build_diagnostic_count_sql(
     asin_where = ""
     if asin:
         asin_where = f"\n      AND a.asin = '{_sanitize_sql_literal(asin)}'"
+    sa_filter = ""
+    if sales_apartment:
+        sa_filter = f"\n      AND dim.sales_apartment = '{_sanitize_sql_literal(sales_apartment)}'"
 
     outer_where = f"\n{where_str}" if (row_filter and where_str) else ""
     return f"""WITH category_benchmark AS (
@@ -117,6 +121,9 @@ product_30d AS (
         a.store_name,
         a.country_code,
         a.category_2,
+        dim.brand,
+        dim.salesman,
+        dim.sales_apartment,
         SUM(a.impressions) AS total_impressions,
         SUM(a.clicks) AS total_clicks,
         SUM(a.ad_order_quantity) AS total_ad_orders,
@@ -127,12 +134,16 @@ product_30d AS (
              THEN SUM(a.ad_order_quantity) * 1.0 / SUM(a.clicks)
              ELSE 0 END AS product_cvr
     FROM ads_lingxing_sc_sales_daily_new a
+    LEFT JOIN dim_lingxing_product_info dim
+        ON a.price_list_seller_sku = dim.msku
+        AND a.country_code = dim.country_code
     WHERE a.date >= DATE_SUB(CURRENT_DATE(), INTERVAL {date_range} DAY)
       AND a.category_2 IS NOT NULL AND a.category_2 != ''
       AND a.impressions > 0
-      AND a.clicks > 0{asin_where}
+      AND a.clicks > 0{asin_where}{sa_filter}
     GROUP BY a.asin, a.price_list_seller_sku,
-             a.store_name, a.country_code, a.category_2
+             a.store_name, a.country_code, a.category_2,
+             dim.brand, dim.salesman, dim.sales_apartment
 ),
 sessions_earlier AS (
     SELECT a.asin, a.price_list_seller_sku AS msku,
@@ -169,6 +180,7 @@ def build_diagnostic_sql(
     dims: Optional[List[str]] = None,
     thresholds: Optional[Dict[str, Any]] = None,
     row_filter: bool = True,
+    sales_apartment: Optional[str] = None,
 ) -> str:
     th = TriDimThresholds.merge(
         thresholds if isinstance(thresholds, dict) else None
@@ -181,6 +193,9 @@ def build_diagnostic_sql(
     asin_where = ""
     if asin:
         asin_where = f"\n      AND a.asin = '{_sanitize_sql_literal(asin)}'"
+    sa_filter = ""
+    if sales_apartment:
+        sa_filter = f"\n      AND dim.sales_apartment = '{_sanitize_sql_literal(sales_apartment)}'"
 
     outer_where = f"\n{where_str}" if (row_filter and where_str) else ""
 
@@ -210,6 +225,7 @@ product_30d AS (
         dim.msku_status,
         dim.salesman,
         dim.product_manager,
+        dim.sales_apartment,
         SUM(a.clicks) AS total_clicks,
         SUM(a.impressions) AS total_impressions,
         SUM(a.ad_order_quantity) AS total_ad_orders,
@@ -228,10 +244,10 @@ product_30d AS (
     WHERE a.date >= DATE_SUB(CURRENT_DATE(), INTERVAL {date_range} DAY)
       AND a.category_2 IS NOT NULL AND a.category_2 != ''
       AND a.impressions > 0
-      AND a.clicks > 0{asin_where}
+      AND a.clicks > 0{asin_where}{sa_filter}
     GROUP BY a.asin, a.price_list_seller_sku, a.spu,
              a.store_name, a.country_code, a.category_2,
-             dim.brand, dim.msku_status, dim.salesman, dim.product_manager
+             dim.brand, dim.msku_status, dim.salesman, dim.product_manager, dim.sales_apartment
 ),
 sessions_earlier AS (
     SELECT a.asin, a.price_list_seller_sku AS msku,
@@ -263,6 +279,7 @@ SELECT
     p.msku_status,
     p.salesman,
     p.product_manager,
+    p.sales_apartment,
     p.total_volume,
     p.total_amount,
     ROUND(p.product_ctr * 100, 4) AS product_ctr_pct,

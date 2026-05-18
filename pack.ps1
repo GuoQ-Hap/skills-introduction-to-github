@@ -16,7 +16,10 @@ $excludes = @(
     '--exclude=*.pyc',
     '--exclude=*.pyo',
     '--exclude=*.tar.gz',
-    '--exclude=*copy*'
+    '--exclude=*copy*',
+    "--exclude=$projectName/.env",
+    "--exclude=$projectName/auth/tokens.json",
+    "--exclude=$projectName/auth/users.json"
 )
 
 tar -czf $outputFile @excludes -C $parentDir $projectName

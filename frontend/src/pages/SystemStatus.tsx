@@ -11,6 +11,8 @@ import {
   Alert,
   Button,
   Divider,
+  Statistic,
+  Tooltip,
 } from 'antd';
 import {
   CheckCircleOutlined,
@@ -20,8 +22,13 @@ import {
   CloudServerOutlined,
   DatabaseOutlined,
   ShoppingOutlined,
+  LikeOutlined,
+  DislikeOutlined,
+  CommentOutlined,
+  ThunderboltOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
-import { listingApi, stiApi, adminApi, lmaApi } from '../api';
+import { listingApi, stiApi, adminApi, lmaApi, type LstaStats } from '../api';
 import { RAINBOW } from '../layouts/MainLayout';
 
 const SYS_COLOR = RAINBOW[4];
@@ -40,6 +47,8 @@ interface HealthInfo {
 export default function SystemStatus() {
   const [services, setServices] = useState<HealthInfo[]>([]);
   const [loadingAll, setLoadingAll] = useState(false);
+  const [lstaStats, setLstaStats] = useState<LstaStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const fetchAll = async () => {
     setLoadingAll(true);
@@ -130,6 +139,15 @@ export default function SystemStatus() {
     lma: <ApiOutlined />, admin: <CloudServerOutlined />,
   };
 
+  const fetchLstaStats = async () => {
+    setStatsLoading(true);
+    try {
+      const { data } = await adminApi.lstaStats();
+      setLstaStats(data);
+    } catch { /* ignore */ }
+    finally { setStatsLoading(false); }
+  };
+
   useEffect(() => {
     try {
       const cached = sessionStorage.getItem('sys_status_cache');
@@ -139,6 +157,7 @@ export default function SystemStatus() {
       }
     } catch { /* ignore */ }
     fetchAll();
+    fetchLstaStats();
   }, []);
 
   const okCount = services.filter((s) => s.status === 'ok').length;
@@ -266,6 +285,107 @@ export default function SystemStatus() {
           </Col>
         ))}
       </Row>
+
+      <Divider />
+
+      {/* ── LSTA 业务统计 ── */}
+      <Card
+        title={
+          <Space>
+            <ShoppingOutlined style={{ color: RAINBOW[1].from }} />
+            <span>Listing 优化业务统计</span>
+          </Space>
+        }
+        extra={
+          <Tooltip title="刷新统计">
+            <Button
+              type="text" size="small" icon={<ReloadOutlined />}
+              loading={statsLoading} onClick={fetchLstaStats}
+            />
+          </Tooltip>
+        }
+        style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', marginBottom: 20 }}
+      >
+        {statsLoading && !lstaStats ? (
+          <div style={{ textAlign: 'center', padding: '24px 0' }}><Spin /></div>
+        ) : (
+          <Row gutter={[24, 16]}>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title={
+                  <Space size={4}>
+                    <ThunderboltOutlined style={{ color: RAINBOW[1].from }} />
+                    <span style={{ fontSize: 13 }}>优化次数</span>
+                  </Space>
+                }
+                value={lstaStats?.optimize_count ?? '-'}
+                valueStyle={{ color: RAINBOW[1].from, fontWeight: 700 }}
+                suffix={<span style={{ fontSize: 13, color: '#999' }}>次</span>}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title={
+                  <Space size={4}>
+                    <EditOutlined style={{ color: RAINBOW[0].from }} />
+                    <span style={{ fontSize: 13 }}>迭代修改</span>
+                  </Space>
+                }
+                value={lstaStats?.refine_count ?? '-'}
+                valueStyle={{ color: RAINBOW[0].from, fontWeight: 700 }}
+                suffix={<span style={{ fontSize: 13, color: '#999' }}>次</span>}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title={
+                  <Space size={4}>
+                    <LikeOutlined style={{ color: '#10b981' }} />
+                    <span style={{ fontSize: 13 }}>用户点赞</span>
+                  </Space>
+                }
+                value={lstaStats?.liked_count ?? '-'}
+                valueStyle={{ color: '#10b981', fontWeight: 700 }}
+                suffix={<span style={{ fontSize: 13, color: '#999' }}>条</span>}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title={
+                  <Space size={4}>
+                    <DislikeOutlined style={{ color: '#ef4444' }} />
+                    <span style={{ fontSize: 13 }}>用户差劲</span>
+                  </Space>
+                }
+                value={lstaStats?.disliked_count ?? '-'}
+                valueStyle={{ color: '#ef4444', fontWeight: 700 }}
+                suffix={<span style={{ fontSize: 13, color: '#999' }}>条</span>}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title={
+                  <Space size={4}>
+                    <CommentOutlined style={{ color: '#6366f1' }} />
+                    <span style={{ fontSize: 13 }}>用户评论</span>
+                  </Space>
+                }
+                value={lstaStats?.comment_count ?? '-'}
+                valueStyle={{ color: '#6366f1', fontWeight: 700 }}
+                suffix={<span style={{ fontSize: 13, color: '#999' }}>条</span>}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Statistic
+                title={<span style={{ fontSize: 13 }}>记录总条数</span>}
+                value={lstaStats?.total_lsta ?? '-'}
+                valueStyle={{ color: '#374151', fontWeight: 700 }}
+                suffix={<span style={{ fontSize: 13, color: '#999' }}>条</span>}
+              />
+            </Col>
+          </Row>
+        )}
+      </Card>
 
       <Divider />
 

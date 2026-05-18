@@ -14,7 +14,7 @@ import { listingApi } from '../api';
 const POLL_INTERVAL = 3000;
 const STORAGE_KEY = 'lsta_bg_tasks';
 
-type TaskAction = 'optimize' | 'analyze' | 'discover_competitors' | 'review_analysis' | 'fetch_product' | 'fetch_reviews';
+type TaskAction = 'optimize' | 'analyze' | 'discover_competitors' | 'market_analysis' | 'review_analysis' | 'fetch_product' | 'fetch_reviews';
 
 /** 多候选优化的阶段性进度（运行中阶段由后端 on_progress 推送） */
 export interface OptimizePartial {
@@ -113,12 +113,12 @@ export function TaskProvider({ children }: { children: ReactNode }) {
           });
           const ACTION_LABELS: Record<string, string> = {
             optimize: '优化', analyze: '诊断',
-            discover_competitors: '竞品发现', review_analysis: '评论分析',
+            discover_competitors: '竞品发现', market_analysis: '市场分析', review_analysis: '评论分析',
             fetch_product: '产品获取', fetch_reviews: '评论抓取',
           };
           const ACTION_ROUTES: Record<string, string> = {
             optimize: '/listing?tab=optimize', analyze: '/listing?tab=analyze',
-            discover_competitors: '/competitors', review_analysis: '/reviews',
+            discover_competitors: '/competitors', market_analysis: '/market-analysis', review_analysis: '/reviews',
             fetch_product: '/listing', fetch_reviews: '/reviews',
           };
           const actionLabel = ACTION_LABELS[info.action] || info.action;
@@ -141,7 +141,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
           });
           const ACTION_LABELS2: Record<string, string> = {
             optimize: '优化', analyze: '诊断',
-            discover_competitors: '竞品发现', review_analysis: '评论分析',
+            discover_competitors: '竞品发现', market_analysis: '市场分析', review_analysis: '评论分析',
             fetch_product: '产品获取', fetch_reviews: '评论抓取',
           };
           const actionLabel = ACTION_LABELS2[info.action] || info.action;
@@ -185,7 +185,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
             });
             const ACTION_LABELS: Record<string, string> = {
               optimize: '优化', analyze: '诊断',
-              discover_competitors: '竞品发现', review_analysis: '评论分析',
+              discover_competitors: '竞品发现', market_analysis: '市场分析', review_analysis: '评论分析',
               fetch_product: '产品获取', fetch_reviews: '评论抓取',
             };
             const actionLabel = ACTION_LABELS[info.action] || info.action;
@@ -219,6 +219,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
       if (action === 'optimize') body.optimize_params = params;
       else if (action === 'analyze') body.analyze_params = params;
       else if (action === 'discover_competitors') body.competitor_params = params;
+      else if (action === 'market_analysis') body.market_analysis_params = params;
       else if (action === 'review_analysis') body.review_analysis_params = params;
       else if (action === 'fetch_product' || action === 'fetch_reviews') body.fetch_params = params;
 

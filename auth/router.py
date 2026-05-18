@@ -3,7 +3,7 @@ from typing import Optional
 
 from .models import (
     LoginRequest, LoginResponse, UserInfo,
-    CreateUserRequest, UpdateUserRequest, PERMISSION_NAMES
+    CreateUserRequest, UpdateUserRequest, PERMISSION_NAMES, LEVEL_PERMISSIONS
 )
 from . import service
 
@@ -38,6 +38,8 @@ def login(req: LoginRequest):
         display_name=user.display_name,
         permission_level=user.permission_level,
         permission_name=PERMISSION_NAMES.get(user.permission_level, str(user.permission_level)),
+        custom_permissions=user.custom_permissions,
+        data_restrictions=user.data_restrictions,
     )
 
 
@@ -56,7 +58,14 @@ def get_me(current_user=Depends(get_current_user)):
         permission_level=current_user.permission_level,
         permission_name=PERMISSION_NAMES.get(current_user.permission_level, str(current_user.permission_level)),
         enabled=current_user.enabled,
+        custom_permissions=current_user.custom_permissions,
+        data_restrictions=current_user.data_restrictions,
     )
+
+
+@router.get("/level-permissions", summary="获取各预设等级对应的功能列表")
+def get_level_permissions():
+    return LEVEL_PERMISSIONS
 
 
 @router.get("/users", response_model=list[UserInfo])
@@ -73,6 +82,8 @@ def create_user(req: CreateUserRequest, current_user=Depends(require_admin)):
             display_name=req.display_name,
             permission_level=req.permission_level,
             enabled=req.enabled,
+            custom_permissions=req.custom_permissions,
+            data_restrictions=req.data_restrictions,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -81,12 +92,22 @@ def create_user(req: CreateUserRequest, current_user=Depends(require_admin)):
 @router.put("/users/{username}", response_model=UserInfo)
 def update_user(username: str, req: UpdateUserRequest, current_user=Depends(require_admin)):
     try:
+        fields_set = getattr(req, "model_fields_set", getattr(req, "__fields_set__", set()))
+        # 区分“未传 data_restrictions”与“显式传 null 清空”两种场景：
+        # - 未传：不改现有限制
+        # - 传 null：清空现有限制
+        data_restrictions = req.data_restrictions
+        if "data_restrictions" in fields_set and req.data_restrictions is None:
+            data_restrictions = {}
         return service.update_user(
             username=username,
             display_name=req.display_name,
             permission_level=req.permission_level,
             enabled=req.enabled,
             password=req.password,
+            custom_permissions=req.custom_permissions,
+            clear_custom_permissions=(req.custom_permissions is None and req.permission_level is not None),
+            data_restrictions=data_restrictions,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

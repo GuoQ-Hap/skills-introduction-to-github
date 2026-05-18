@@ -12,6 +12,7 @@ import jieba
 
 from LDA.service.base import service_logger
 from LDA.service.schemaService import schema_service
+from LDA.skills.tableQueryPlanningSkill import table_query_planning_skill
 
 logger = service_logger
 
@@ -91,7 +92,6 @@ GROUP_DIMENSION_MAP = {
     "SKU": ["sku"], "MSKU": ["msku"], "ASIN": ["asin"], "SPU": ["spu"],
 }
 
-
 class NLPService:
     """NLP 分析服务：分词 → 意图识别 → 关键字匹配表/字段。"""
 
@@ -103,7 +103,9 @@ class NLPService:
             return
         custom_words = [
             "销售额", "销量", "利润", "毛利", "退货率", "转化率",
-            "库存", "安全库存", "FBA", "海外仓", "本地仓",
+            "库存", "库存监控", "库存预警", "库存预测", "安全库存",
+            "断货", "缺货", "补货倒计时", "可售天数",
+            "FBA", "海外仓", "本地仓", "全部仓库",
             "广告花费", "广告销售额", "ACoS", "点击率",
             "采购", "补货", "发货", "头程", "尾程",
             "店铺", "品类", "品牌", "国家", "站点",
@@ -112,6 +114,7 @@ class NLPService:
             "MSKU", "SKU", "ASIN", "FNSKU", "SPU",
             "最近30天", "最近7天", "本月", "上个月", "今年", "去年",
         ]
+        custom_words.extend(table_query_planning_skill.custom_words)
         for w in custom_words:
             jieba.add_word(w)
         for kw in schema_service.keyword_index:
@@ -163,7 +166,9 @@ class NLPService:
             if t.startswith("temp_") or t.startswith("tmp_"):
                 table_scores[t] *= 0.3
 
-        sorted_tables = sorted(table_scores.items(), key=lambda x: -x[1])
+        base_ranked_tables = sorted(table_scores.items(), key=lambda x: -x[1])
+        plan = table_query_planning_skill.plan_tables(query, base_ranked_tables)
+        sorted_tables = plan.ordered_tables
         result = []
         for table_name, score in sorted_tables[:10]:
             info = tables[table_name]
@@ -174,6 +179,9 @@ class NLPService:
                 "description": info["description_cn"],
                 "layer": info["layer"],
                 "matched_columns": matched_cols,
+                "planning_status": plan.status,
+                "planning_attempts": plan.attempts,
+                "planning_audit": plan.audit_notes,
             })
         return result
 

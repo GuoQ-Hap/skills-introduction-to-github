@@ -44,4 +44,4 @@ volumes:
     driver_opts:
       type: cifs
       device: "//10.0.10.10/DASharedFiles/MSKU相关性判断/搜索词相关性/3_搜索词相关性结果"
-      o: "addr=10.0.10.10,username=guest,password=,file_mode=0444,dir_mode=0555,iocharset=utf8"
+      o: "addr=10.0.10.10,username=guoqing.yang,password=aabb1234,file_mode=0444,dir_mode=0555,iocharset=utf8"

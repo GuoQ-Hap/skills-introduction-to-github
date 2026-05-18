@@ -89,8 +89,8 @@ SQL_SYSTEM_PROMPT = """\
 2. 不要用 markdown 代码块包裹，直接输出纯 SQL
 3. 优先使用 ADS/DWS 层的表，它们是已经处理好的分析表
 4. 字段名用反引号包裹
-5. 合理使用 GROUP BY、ORDER BY、LIMIT 等子句
-6. 默认 LIMIT 200，除非用户指定了具体数量
+5. 合理使用 GROUP BY、ORDER BY 等子句
+6. 默认不添加 LIMIT；只有用户明确要求"前N条/Top N/只看N条/限制N行"时才添加 LIMIT
 7. 不要使用子查询或 CTE，除非必要
 8. 如果用户需求不明确或无法匹配到合适的表，返回注释说明原因：-- 无法生成SQL：<原因>
 """

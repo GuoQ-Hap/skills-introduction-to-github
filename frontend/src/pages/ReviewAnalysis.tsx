@@ -107,9 +107,9 @@ export default function ReviewAnalysis() {
       const fetched: ReviewItem[] = data.reviews || [];
       if (fetched.length) {
         setReviews(prev => [...prev, ...fetched]);
-        message.success(`抓取到 ${fetched.length} 条评论`);
+        message.success(`从领星评论表读取到 ${fetched.length} 条评论`);
       } else {
-        message.info('未抓取到评论，请检查 ASIN 或手动输入');
+        message.info('领星评论表未读取到评论，请检查 ASIN/站点或手动输入');
       }
       if (data.title) setProductTitle(data.title);
       setFetching(false);
@@ -234,7 +234,7 @@ export default function ReviewAnalysis() {
   );
 
   return (
-    <div style={{ padding: '24px', maxWidth: 1400, margin: '0 auto' }}>
+    <div className="review-analysis-page" style={{ padding: '24px', maxWidth: 1400, margin: '0 auto' }}>
       <div style={{ marginBottom: 24 }}>
         <Title level={4} style={{ margin: 0 }}>
           <BulbOutlined style={{ marginRight: 8 }} />评论分析
@@ -248,7 +248,7 @@ export default function ReviewAnalysis() {
           <Card size="small" title="评论来源" style={{ marginBottom: 16, borderRadius: 12 }}>
             {/* 抓取 */}
             <div style={{ marginBottom: 16 }}>
-              <Text strong style={{ fontSize: 12 }}>从 Amazon 抓取</Text>
+              <Text strong style={{ fontSize: 12 }}>从领星评论表读取</Text>
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                 <Input size="small" placeholder="ASIN（10位）" value={asin}
                   onChange={e => setAsin(e.target.value.toUpperCase())} style={{ flex: 1 }}
@@ -257,7 +257,7 @@ export default function ReviewAnalysis() {
                   style={{ width: 80 }}
                   options={['US','UK','DE','JP','CA','FR','IT','ES','AU','MX'].map(v => ({ label: v, value: v }))} />
                 <Button size="small" type="primary" icon={<SearchOutlined />}
-                  loading={fetching} onClick={handleFetchReviews}>抓取</Button>
+                  loading={fetching} onClick={handleFetchReviews}>读取</Button>
               </div>
             </div>
 

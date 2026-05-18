@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Row,
@@ -23,6 +23,7 @@ import {
   Image,
   InputNumber,
   Progress,
+  Tabs,
 } from 'antd';
 import {
   SearchOutlined,
@@ -41,6 +42,11 @@ import {
   UploadOutlined,
   UndoOutlined,
   SendOutlined,
+  LikeOutlined,
+  LikeFilled,
+  DislikeOutlined,
+  DislikeFilled,
+  CommentOutlined,
 } from '@ant-design/icons';
 import {
   listingApi,
@@ -51,6 +57,7 @@ import {
   type EvaluateScores,
   type EvaluateAnalysis,
   type DimensionAnalysis,
+  type ListingDeepDiagnosticResponse,
   type PromptDefaults,
   type SQLExecResponse,
   type TriDimDiagnostic,
@@ -105,6 +112,8 @@ function amazonDetailUrl(asin: string, marketplace: string): string {
   const domain = AMAZON_DOMAINS[(marketplace || 'US').toUpperCase()] || 'www.amazon.com';
   return `https://${domain}/dp/${asin}`;
 }
+
+const AUTO_COMPETITOR_LIMIT = 5;
 
 /* ── Hover 中文翻译（按需 + 缓存） ── */
 
@@ -719,7 +728,7 @@ function ReviewInsightsPanel({ data }: { data: ReviewAnalysisResult }) {
         </div>
       )}
       {data.summary && (
-        <div style={{ marginTop: 6, padding: '4px 8px', background: '#fafafa', borderRadius: 6, fontSize: 11, color: '#666', lineHeight: 1.6 }}>
+        <div style={{ marginTop: 6, padding: '6px 8px', background: 'rgba(6, 23, 38, 0.88)', border: '1px solid rgba(122, 205, 232, 0.2)', borderRadius: 6, fontSize: 11, color: '#bdddea', lineHeight: 1.6 }}>
           {data.summary}
         </div>
       )}
@@ -790,8 +799,11 @@ function EditableProductCard({ product, onChange, fetching, triDim, fetchStage, 
     upd({ bullet_points: next });
   };
 
-  const showProgress = fetching || (fetchStage && fetchStage !== 'done' && fetchStage !== 'idle');
-  if (showProgress) {
+  const hasProductData = !!product.title;
+
+  // 没有产品数据时才显示全屏进度占位卡
+  const showFullProgress = !hasProductData && (fetching || (fetchStage && fetchStage !== 'done' && fetchStage !== 'idle'));
+  if (showFullProgress) {
     const steps = [
       { key: 'product', label: '获取产品数据 + 三维诊断 + 流量词' },
       { key: 'search-term', label: '获取搜索词相关性推荐' },
@@ -831,12 +843,30 @@ function EditableProductCard({ product, onChange, fetching, triDim, fetchStage, 
     );
   }
 
+  // 有产品数据但后台任务还在跑（三维诊断/流量词/搜索词仍在加载）时，在卡片顶部显示内联进度条
+  const showInlineProgress = hasProductData && (fetching || searchTermLoading);
+  const inlineLabel = fetching
+    ? '正在后台加载三维诊断 & 流量词...'
+    : searchTermLoading
+      ? '正在加载搜索词相关性推荐...'
+      : '';
+
   return (
     <Card
       size="small"
       title={<Space><ShoppingOutlined /><span>原始产品信息</span><Tag color="blue" style={{ fontSize: 10 }}>可编辑</Tag></Space>}
       style={{ borderRadius: 12 }}
     >
+      {showInlineProgress && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 10px', marginBottom: 12,
+          background: '#FFF7ED', border: '1px solid #FDE68A', borderRadius: 8,
+        }}>
+          <Spin size="small" />
+          <Text style={{ fontSize: 12, color: '#D97706' }}>{inlineLabel}</Text>
+        </div>
+      )}
       <Row gutter={[12, 8]}>
         <Col span={24}>
           <Text strong style={{ fontSize: 12, color: ACCENT }}>标题</Text>
@@ -1004,8 +1034,8 @@ function TrafficWordSelector({ trafficWords, selectedWords, onSelectedChange }: 
 
       {trafficWords.length > 0 ? (
         <div style={{
-          maxHeight: 200, overflowY: 'auto', border: '1px solid #F3F4F6', borderRadius: 8,
-          padding: '6px 8px', background: '#FAFAFA',
+          maxHeight: 200, overflowY: 'auto', border: '1px solid rgba(83, 210, 255, 0.24)', borderRadius: 8,
+          padding: '6px 8px', background: 'rgba(2, 12, 23, 0.72)',
         }}>
           {trafficWords.map((tw) => {
             const checked = selectedWords.includes(tw.word);
@@ -1016,25 +1046,25 @@ function TrafficWordSelector({ trafficWords, selectedWords, onSelectedChange }: 
 
             const isManual = tw.source === 'manual';
             const relevanceCfg: Record<string, { label: string; color: string; bg: string; border: string }> = {
-              clear:   { label: '清晰', color: '#15803d', bg: '#dcfce7', border: '#86efac' },
-              fuzzy:   { label: '模糊', color: '#a16207', bg: '#fef9c3', border: '#facc15' },
-              broad:   { label: '宽泛', color: '#dc2626', bg: '#fee2e2', border: '#fca5a5' },
-              unknown: { label: '未判定', color: '#6b7280', bg: 'transparent', border: '#e5e7eb' },
-              manual:  { label: '手动添加', color: '#2563eb', bg: '#dbeafe', border: '#93c5fd' },
+              clear:   { label: '清晰', color: '#79f2b4', bg: 'rgba(16, 185, 129, 0.14)', border: 'rgba(52, 211, 153, 0.44)' },
+              fuzzy:   { label: '模糊', color: '#f8d477', bg: 'rgba(245, 158, 11, 0.13)', border: 'rgba(250, 204, 21, 0.42)' },
+              broad:   { label: '宽泛', color: '#ff9a9a', bg: 'rgba(239, 68, 68, 0.13)', border: 'rgba(248, 113, 113, 0.4)' },
+              unknown: { label: '未判定', color: '#9db9c5', bg: 'rgba(122, 205, 232, 0.08)', border: 'rgba(122, 205, 232, 0.2)' },
+              manual:  { label: '手动添加', color: '#93c5fd', bg: 'rgba(37, 99, 235, 0.16)', border: 'rgba(96, 165, 250, 0.42)' },
             };
             const rel = relevanceCfg[isManual ? 'manual' : (tw.relevance ?? 'unknown')];
 
             return (
               <div key={tw.word} style={{
                 display: 'flex', alignItems: 'center', gap: 5, padding: '3px 0',
-                borderBottom: '1px solid #F9FAFB',
+                borderBottom: '1px solid rgba(122, 205, 232, 0.1)',
               }}>
                 <Checkbox checked={checked} onChange={() => toggleWord(tw.word)} />
                 <Tooltip title={tooltipText || tw.source}>
                   <span
                     style={{
                       fontSize: 12, cursor: 'pointer', fontWeight: checked ? 600 : 400,
-                      color: isManual ? '#2563eb' : (checked ? '#374151' : '#374151'),
+                      color: isManual ? '#93c5fd' : (checked ? '#e9f8ff' : '#b7d7e4'),
                       maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}
                     onClick={() => toggleWord(tw.word)}
@@ -1132,23 +1162,23 @@ function sqrVolumeScoreLetter(grade: string): string {
 }
 
 const SCORE_LETTER_STYLE: Record<string, { bg: string; color: string; border: string }> = {
-  A: { bg: '#dcfce7', color: '#15803d', border: '#86efac' },
-  B: { bg: '#cffafe', color: '#0e7490', border: '#67e8f9' },
-  C: { bg: '#fef9c3', color: '#a16207', border: '#facc15' },
-  D: { bg: '#ede9fe', color: '#6d28d9', border: '#c4b5fd' },
-  E: { bg: '#f3f4f6', color: '#4b5563', border: '#d1d5db' },
-  F: { bg: '#fafafa', color: '#9ca3af', border: '#e5e7eb' },
-  '?': { bg: '#fafafa', color: '#d1d5db', border: '#e5e7eb' },
+  A: { bg: 'rgba(16, 185, 129, 0.14)', color: '#8df2bd', border: 'rgba(52, 211, 153, 0.42)' },
+  B: { bg: 'rgba(6, 182, 212, 0.14)', color: '#8eeaff', border: 'rgba(103, 232, 249, 0.42)' },
+  C: { bg: 'rgba(245, 158, 11, 0.13)', color: '#f8d477', border: 'rgba(250, 204, 21, 0.42)' },
+  D: { bg: 'rgba(124, 58, 237, 0.14)', color: '#c4b5fd', border: 'rgba(167, 139, 250, 0.42)' },
+  E: { bg: 'rgba(122, 205, 232, 0.08)', color: '#9db9c5', border: 'rgba(122, 205, 232, 0.2)' },
+  F: { bg: 'rgba(122, 205, 232, 0.08)', color: '#9db9c5', border: 'rgba(122, 205, 232, 0.2)' },
+  '?': { bg: 'rgba(122, 205, 232, 0.06)', color: '#7faec1', border: 'rgba(122, 205, 232, 0.14)' },
 };
 
 /* ─── 搜索词相关性推荐库选择器 ─── */
 
 const RELEVANCE_LEVELS = [
-  { key: '高相关', color: '#15803d', bg: '#dcfce7', border: '#86efac' },
-  { key: '中高相关', color: '#0e7490', bg: '#cffafe', border: '#67e8f9' },
-  { key: '中相关', color: '#a16207', bg: '#fef9c3', border: '#facc15' },
-  { key: '中低相关', color: '#c2410c', bg: '#ffedd5', border: '#fdba74' },
-  { key: '低相关', color: '#dc2626', bg: '#fee2e2', border: '#fca5a5' },
+  { key: '高相关', color: '#8df2bd', bg: 'rgba(16, 185, 129, 0.14)', border: 'rgba(52, 211, 153, 0.42)' },
+  { key: '中高相关', color: '#8eeaff', bg: 'rgba(6, 182, 212, 0.14)', border: 'rgba(103, 232, 249, 0.42)' },
+  { key: '中相关', color: '#f8d477', bg: 'rgba(245, 158, 11, 0.13)', border: 'rgba(250, 204, 21, 0.42)' },
+  { key: '中低相关', color: '#ffc08a', bg: 'rgba(249, 115, 22, 0.13)', border: 'rgba(253, 186, 116, 0.4)' },
+  { key: '低相关', color: '#ff9a9a', bg: 'rgba(239, 68, 68, 0.13)', border: 'rgba(248, 113, 113, 0.4)' },
 ];
 
 interface SearchTermLibProps {
@@ -1309,8 +1339,8 @@ function SearchTermLibSelector({
 
       {/* MSKU + 店铺信息 */}
       <div style={{
-        padding: '4px 8px', borderRadius: 6, background: '#F0FDFA',
-        border: '1px solid #99F6E4', marginBottom: 6, fontSize: 11,
+        padding: '6px 8px', borderRadius: 6, background: 'rgba(6, 23, 38, 0.88)',
+        border: '1px solid rgba(83, 210, 255, 0.24)', marginBottom: 6, fontSize: 11,
       }}>
         <Text style={{ fontSize: 11 }}>
           MSKU: <Text strong style={{ fontSize: 11 }}>{data.matched_msku}</Text>
@@ -1331,9 +1361,9 @@ function SearchTermLibSelector({
               onClick={() => onLevelChange(active ? null : lv.key)}
               style={{
                 fontSize: 10, padding: '1px 7px', borderRadius: 4, cursor: 'pointer',
-                background: active ? lv.bg : '#fafafa',
-                color: active ? lv.color : '#9ca3af',
-                border: `1px solid ${active ? lv.border : '#e5e7eb'}`,
+                background: active ? lv.bg : 'rgba(6, 23, 38, 0.64)',
+                color: active ? lv.color : '#9db9c5',
+                border: `1px solid ${active ? lv.border : 'rgba(122, 205, 232, 0.22)'}`,
                 fontWeight: active ? 600 : 400,
                 transition: 'all 0.15s',
               }}
@@ -1362,9 +1392,9 @@ function SearchTermLibSelector({
                   padding: '2px 8px',
                   borderRadius: 4,
                   cursor: volumeLoading ? 'not-allowed' : 'pointer',
-                  border: `1px solid ${active ? '#0e7490' : '#e5e7eb'}`,
-                  background: active ? '#ecfeff' : '#fff',
-                  color: active ? '#0e7490' : '#6b7280',
+                  border: `1px solid ${active ? 'rgba(103, 232, 249, 0.48)' : 'rgba(122, 205, 232, 0.22)'}`,
+                  background: active ? 'rgba(6, 182, 212, 0.16)' : 'rgba(6, 23, 38, 0.64)',
+                  color: active ? '#8eeaff' : '#9db9c5',
                   fontWeight: active ? 600 : 400,
                   lineHeight: 1.3,
                 }}
@@ -1390,8 +1420,8 @@ function SearchTermLibSelector({
 
       {!levelLoading && activeLevel && data.search_terms.length > 0 && (
         <div style={{
-          maxHeight: 240, overflowY: 'auto', border: '1px solid #F3F4F6', borderRadius: 8,
-          padding: '4px 8px', background: '#FAFAFA',
+          maxHeight: 240, overflowY: 'auto', border: '1px solid rgba(83, 210, 255, 0.24)', borderRadius: 8,
+          padding: '4px 8px', background: 'rgba(2, 12, 23, 0.72)',
         }}>
           {!volumeLoading && filteredSortedTerms.length === 0 && (
             <div style={{ padding: 12, textAlign: 'center', fontSize: 11, color: '#9ca3af' }}>
@@ -1407,13 +1437,13 @@ function SearchTermLibSelector({
             return (
               <div key={t.search_term} style={{
                 display: 'flex', alignItems: 'center', gap: 5, padding: '2px 0',
-                borderBottom: '1px solid #F9FAFB',
+                borderBottom: '1px solid rgba(122, 205, 232, 0.1)',
               }}>
                 <Checkbox checked={checked} onChange={() => toggleTerm(t.search_term)} />
                 <Tooltip title={`相关性 Excel 分值：${t.total_score ?? '-'}`}>
                   <span style={{
                     fontSize: 12, cursor: 'pointer', fontWeight: checked ? 600 : 400,
-                    color: '#374151', maxWidth: 150, overflow: 'hidden',
+                    color: checked ? '#e9f8ff' : '#b7d7e4', maxWidth: 150, overflow: 'hidden',
                     textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }} onClick={() => toggleTerm(t.search_term)}>
                     {t.search_term}
@@ -1733,6 +1763,122 @@ function AnalyzeResultCard({ data }: { data: ListingAnalyzeResponse }) {
   );
 }
 
+function DeepDiagnosticResultCard({ data }: { data: ListingDeepDiagnosticResponse }) {
+  const renderList = (items?: string[]) => {
+    const list = (items || []).filter(Boolean);
+    if (!list.length) return <Text style={{ color: 'rgba(223,247,255,0.62)', fontSize: 13 }}>暂无明确结论</Text>;
+    return (
+      <ul style={{ margin: '8px 0 0 18px', padding: 0, color: '#dff7ff', fontSize: 13, lineHeight: 1.85 }}>
+        {list.map((item, i) => <li key={`${item}-${i}`}>{item}</li>)}
+      </ul>
+    );
+  };
+  const renderField = (label: string, content?: string | string[]) => (
+    <div style={{ marginTop: 12 }}>
+      <Text strong style={{ color: '#7acde8', fontSize: 13 }}>{label}</Text>
+      {Array.isArray(content)
+        ? renderList(content)
+        : (
+          <div style={{ marginTop: 6, color: '#dff7ff', fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+            {content || '暂无明确结论'}
+          </div>
+        )}
+    </div>
+  );
+  const sectionStyle: CSSProperties = {
+    borderRadius: 12,
+    padding: 16,
+    border: '1px solid rgba(122, 205, 232, 0.22)',
+    background: 'linear-gradient(135deg, rgba(6, 23, 38, 0.92), rgba(8, 36, 54, 0.78))',
+    boxShadow: '0 0 24px rgba(34, 211, 238, 0.08) inset',
+  };
+
+  return (
+    <Card
+      title={
+        <Space>
+          <BarChartOutlined style={{ color: '#22d3ee' }} />
+          <span style={{ color: '#e6fbff' }}>Listing 深度诊断报告</span>
+          <Tag style={{ color: '#7acde8', background: 'rgba(34, 211, 238, 0.10)', borderColor: 'rgba(34, 211, 238, 0.34)' }}>
+            自我诊断 + 竞品对比
+          </Tag>
+        </Space>
+      }
+      style={{
+        borderRadius: 12,
+        marginTop: 0,
+        border: '1px solid rgba(83, 210, 255, 0.22)',
+        background: 'linear-gradient(135deg, rgba(4, 14, 32, 0.96), rgba(3, 18, 32, 0.92))',
+      }}
+      styles={{ body: { padding: 16 } }}
+    >
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, 0.9fr) minmax(420px, 1.4fr)', gap: 14 }}>
+        <div style={sectionStyle}>
+          <Text strong style={{ color: '#e6fbff', fontSize: 15 }}>自我诊断</Text>
+          <div style={{ marginTop: 10, color: '#dff7ff', fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+            {data.self_diagnosis.summary || '暂无摘要'}
+          </div>
+          {renderField('优势', data.self_diagnosis.strengths)}
+          {renderField('问题', data.self_diagnosis.weaknesses)}
+          {renderField('修改建议', data.self_diagnosis.suggestions)}
+        </div>
+
+        <div style={sectionStyle}>
+          <Text strong style={{ color: '#e6fbff', fontSize: 15 }}>逐竞品对比</Text>
+          {data.competitor_diagnoses?.length ? (
+            <Tabs
+              size="small"
+              style={{ marginTop: 10 }}
+              items={data.competitor_diagnoses.map((c) => ({
+                key: c.competitor_asin || c.competitor_label,
+                label: `竞品 ${c.competitor_label || ''}`,
+                children: (
+                  <div style={{ color: '#dff7ff' }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+                      {c.competitor_image && (
+                        <Image src={c.competitor_image} width={72} height={72} style={{ objectFit: 'cover', borderRadius: 8 }} preview={false} />
+                      )}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ color: '#e6fbff', fontSize: 13, fontWeight: 800, lineHeight: 1.4 }}>
+                          {c.competitor_title || c.competitor_asin}
+                        </div>
+                        <div style={{ marginTop: 5, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {c.competitor_brand && <Tag color="cyan">品牌 {c.competitor_brand}</Tag>}
+                          {c.competitor_monthly_sales_text && <Tag color="green">{c.competitor_monthly_sales_text}</Tag>}
+                          {!c.competitor_monthly_sales_text && c.competitor_bsr_rank && <Tag color="blue">BSR {c.competitor_bsr_rank}</Tag>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
+                      {c.summary || '暂无摘要'}
+                    </div>
+                    {renderField('图片对比', c.image_comparison)}
+                    {renderField('品牌对比', c.brand_comparison)}
+                    {renderField('评论对比', c.review_comparison)}
+                    {renderField('Listing 对比', c.listing_comparison)}
+                    {renderField('标题对比', c.title_comparison)}
+                    {renderField('场景对比', c.scenario_comparison)}
+                    {renderField('销量/热度对比', c.sales_comparison)}
+                    {renderField('我产品优势', c.own_advantages)}
+                    {renderField('我产品劣势', c.own_disadvantages)}
+                    {renderField('竞品优势', c.competitor_advantages)}
+                    {renderField('竞品劣势', c.competitor_disadvantages)}
+                    {renderField('针对性建议', c.suggestions)}
+                  </div>
+                ),
+              }))}
+            />
+          ) : (
+            <div style={{ marginTop: 10, color: '#dff7ff', fontSize: 13 }}>
+              暂无逐竞品对比结果，请先确保已抓取到 5 条竞品。
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /* ─── 优化版本卡 ─── */
 
 const MAX_REFINE = 3;
@@ -1746,6 +1892,8 @@ interface RefineVersion {
   variantRank?: number;
   /** 多候选总数 */
   variantTotal?: number;
+  /** 关联的 llm_memory.id，用于回收用户反馈（点赞/差劲/评论） */
+  memoryId?: number | null;
 }
 
 /**
@@ -1755,6 +1903,8 @@ interface RefineVersion {
  */
 function buildVersionsFromOptimizeResult(data: ListingOptimizeResponse): RefineVersion[] {
   const variants = data.variants || [];
+  const variantMemIds = data.variant_memory_ids ?? [];
+  const mem = data.memory_id ?? null;
   if (variants.length > 1) {
     return variants.map((v, i) => ({
       optimized: v.listing,
@@ -1762,9 +1912,11 @@ function buildVersionsFromOptimizeResult(data: ListingOptimizeResponse): RefineV
       variant: v,
       variantRank: i + 1,
       variantTotal: variants.length,
+      // 优先用各自独立的记忆 id，回退到整体 memory_id
+      memoryId: (variantMemIds[i] ?? mem),
     }));
   }
-  return [{ optimized: data.optimized, feedback: '' }];
+  return [{ optimized: data.optimized, feedback: '', memoryId: mem }];
 }
 
 function RefinePanel({
@@ -1840,15 +1992,19 @@ function RefinePanel({
   );
 }
 
-function VersionCard({ version, index, asin, marketplace, selectedKeywords = [], trafficWords = [], searchLibWords = [], onPickVariant }: {
+function VersionCard({
+  version, index, asin, marketplace, selectedKeywords = [], trafficWords = [], searchLibWords = [],
+  productContext, reviewAnalysis, competitorProducts = [],
+}: {
   version: RefineVersion; index: number; asin: string; marketplace: string;
   selectedKeywords?: string[];
   trafficWords?: TrafficWordItem[];
   searchLibWords?: string[];
-  /** 多候选模式：点击"选此候选继续迭代"时回调，宿主会把该候选收敛为单版本用于后续 refine */
-  onPickVariant?: (version: RefineVersion) => void;
+  productContext?: ProductData | null;
+  reviewAnalysis?: ReviewAnalysisResult | null;
+  competitorProducts?: ProductData[];
 }) {
-  const { optimized, feedback, variant, variantRank, variantTotal } = version;
+  const { optimized, feedback, variant, variantRank, variantTotal, memoryId } = version;
   const isVariantMode = !!variant && (variantTotal ?? 0) > 1;
   const isBestVariant = variant?.is_best === true;
 
@@ -1880,16 +2036,27 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
     return m.size > 0 ? m : null;
   }, [trafficWords]);
   const [editing, setEditing] = useState(false);
-  const [embedding, setEmbedding] = useState(false);
   const [editTitle, setEditTitle] = useState(optimized.title);
   const [editBullets, setEditBullets] = useState([...optimized.bullet_points]);
   const [editDesc, setEditDesc] = useState(optimized.description);
   const [editSearch, setEditSearch] = useState(optimized.search_terms);
   const [diagModel, setDiagModel] = useState<string | undefined>(undefined);
   const [diagnosing, setDiagnosing] = useState(false);
-  const [diagResult, setDiagResult] = useState<ListingAnalyzeResponse | null>(null);
+  const [diagResult, setDiagResult] = useState<ListingDeepDiagnosticResponse | null>(null);
   const [submitAsin, setSubmitAsin] = useState(asin);
   const [submitting, setSubmitting] = useState(false);
+  // 用户反馈：点赞 / 差劲 / 评论
+  const [feedbackLiked, setFeedbackLiked] = useState(false);
+  const [feedbackDisliked, setFeedbackDisliked] = useState(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentSaved, setCommentSaved] = useState('');
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [recordReason, setRecordReason] = useState('');
+  const [recordDirection, setRecordDirection] = useState('');
+  const [recordRemark, setRecordRemark] = useState('');
+  const [recordSubmitting, setRecordSubmitting] = useState(false);
 
   const startEdit = () => {
     setEditTitle(optimized.title); setEditBullets([...optimized.bullet_points]);
@@ -1904,51 +2071,120 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
   const handleBulletChange = (i: number, v: string) => {
     const next = [...editBullets]; next[i] = v; setEditBullets(next);
   };
-  const handleEmbed = async () => {
-    const t = editing ? editTitle : optimized.title;
-    if (!t.trim()) { message.warning('标题不能为空'); return; }
-    setEmbedding(true);
+  const submitFeedback = async (
+    payload: { liked?: boolean | null; disliked?: boolean | null; comment?: string | null },
+    successMsg: string,
+  ) => {
+    if (!memoryId) {
+      message.warning('当前结果暂未持久化，无法提交反馈');
+      return false;
+    }
+    setFeedbackSubmitting(true);
     try {
-      const { data: res } = await listingApi.embed({
-        asin, marketplace, title: t,
-        bullet_points: editing ? editBullets : optimized.bullet_points,
-        description: editing ? editDesc : optimized.description,
-        search_terms: editing ? editSearch : optimized.search_terms,
-      });
-      if (res.success) message.success(`入库成功！集合: ${res.collection}`);
-      else message.error(res.message || '入库失败');
-    } catch (e: any) { message.error(e.message || '入库失败'); }
-    finally { setEmbedding(false); }
+      await listingApi.submitFeedback({ memory_id: memoryId, ...payload });
+      message.success(successMsg);
+      return true;
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || e?.message || '提交反馈失败');
+      return false;
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  const handleLike = async () => {
+    const next = !feedbackLiked;
+    const ok = await submitFeedback(
+      { liked: next, disliked: next ? false : null },
+      next ? '已点赞，感谢反馈' : '已取消点赞',
+    );
+    if (ok) {
+      setFeedbackLiked(next);
+      if (next) setFeedbackDisliked(false);
+    }
+  };
+
+  const handleDislike = async () => {
+    const next = !feedbackDisliked;
+    const ok = await submitFeedback(
+      { disliked: next, liked: next ? false : null },
+      next ? '已记录"差劲"，我们会改进' : '已取消"差劲"标记',
+    );
+    if (ok) {
+      setFeedbackDisliked(next);
+      if (next) setFeedbackLiked(false);
+    }
+  };
+
+  const handleSubmitComment = async () => {
+    const text = commentDraft.trim();
+    const ok = await submitFeedback(
+      { comment: text },
+      text ? '评论已提交' : '评论已清空',
+    );
+    if (ok) {
+      setCommentSaved(text);
+      setCommentOpen(false);
+    }
   };
 
   const handleDiagnose = async () => {
     const t = editing ? editTitle : optimized.title;
     if (!t.trim()) { message.warning('标题不能为空'); return; }
+    const baseProduct = productContext || {
+      asin, marketplace, title: t, brand: '', price: '', currency: '', rating: '', review_count: '',
+      category: '', bsr_rank: '', bullet_points: [], description: '', images: [], reviews: [],
+    };
     setDiagnosing(true);
     setDiagResult(null);
     try {
       const pd: ProductData = {
+        ...baseProduct,
         asin, marketplace,
         title: t,
-        brand: '',
-        price: '',
-        currency: '',
-        rating: '',
-        review_count: '',
-        category: '',
-        bsr_rank: '',
         bullet_points: editing ? editBullets : optimized.bullet_points,
         description: editing ? editDesc : optimized.description,
-        images: [],
-        reviews: [],
       };
-      const { data } = await listingApi.analyze({
-        asin, marketplace, model: diagModel, product_data: pd,
+      const { data } = await listingApi.deepDiagnostic({
+        asin, marketplace, model: diagModel,
+        product_data: pd,
+        current_title: pd.title,
+        current_bullet_points: pd.bullet_points,
+        current_description: pd.description,
+        current_search_terms: editing ? editSearch : optimized.search_terms,
+        review_analysis: reviewAnalysis ?? undefined,
+        competitor_products: competitorProducts.slice(0, 5),
       });
       setDiagResult(data);
     } catch (e: any) { message.error(e.message || '诊断失败'); }
     finally { setDiagnosing(false); }
   };
+
+  const renderDiagList = (items?: string[]) => {
+    const list = (items || []).filter(Boolean);
+    if (!list.length) return <Text style={{ color: 'rgba(223,247,255,0.62)', fontSize: 12 }}>暂无明确结论</Text>;
+    return (
+      <ul style={{ margin: '6px 0 0 16px', padding: 0, color: '#dff7ff', fontSize: 12, lineHeight: 1.75 }}>
+        {list.map((item, i) => <li key={`${item}-${i}`}>{item}</li>)}
+      </ul>
+    );
+  };
+
+  const renderDiagField = (label: string, content?: string | string[]) => (
+    <div style={{ marginTop: 10 }}>
+      <Text strong style={{ color: '#7acde8', fontSize: 12 }}>{label}</Text>
+      {Array.isArray(content)
+        ? renderDiagList(content)
+        : (
+          <div style={{
+            marginTop: 5, color: '#dff7ff', fontSize: 12, lineHeight: 1.7,
+            whiteSpace: 'pre-wrap',
+          }}>
+            {content || '暂无明确结论'}
+          </div>
+        )}
+    </div>
+  );
 
   const handleSubmitToLingxing = () => {
     const t = editing ? editTitle : optimized.title;
@@ -1991,6 +2227,67 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
         } finally { setSubmitting(false); }
       },
     });
+  };
+
+  const buildOriginalListing = (): OptimizedListing => ({
+    title: productContext?.title || '',
+    bullet_points: productContext?.bullet_points || [],
+    description: productContext?.description || '',
+    search_terms: '',
+    optimization_notes: '',
+    word_analysis: null,
+  });
+
+  const handleCreateRecord = async () => {
+    const t = editing ? editTitle : optimized.title;
+    if (!t.trim()) { message.warning('标题不能为空'); return; }
+    setRecordSubmitting(true);
+    try {
+      const beforeListing = buildOriginalListing();
+      const reason = recordReason.trim()
+        || optimized.optimization_notes
+        || variant?.overall_summary
+        || '确认采用该 Listing 优化结果';
+      const direction = recordDirection.trim()
+        || variant?.priority_actions?.join('；')
+        || variant?.free_form_score?.suggestions?.join('；')
+        || '提升标题点击、五点转化和关键词覆盖';
+      const { data } = await listingApi.createOptimizeRecord({
+        asin,
+        marketplace,
+        store_name: '',
+        country_code: marketplace,
+        optimization_reason: reason,
+        optimization_direction: direction,
+        remark: recordRemark.trim(),
+        before_listing: beforeListing,
+        after_listing: {
+          title: editing ? editTitle : optimized.title,
+          bullet_points: editing ? editBullets : optimized.bullet_points,
+          description: editing ? editDesc : optimized.description,
+          search_terms: editing ? editSearch : optimized.search_terms,
+          optimization_notes: optimized.optimization_notes,
+          word_analysis: optimized.word_analysis,
+        },
+        before_images: productContext?.images || [],
+        after_images: productContext?.images || [],
+        metric_period_days: 30,
+        variant_rank: variantRank ?? null,
+        variant_total: variantTotal ?? null,
+        source_memory_id: memoryId ?? null,
+        extra: {
+          variant_score: variant?.composite_score,
+          expose_score: variant?.total_score,
+          conversion_score: variant?.free_form_score?.total,
+        },
+      });
+      message.success(`优化记录已入库 #${data.id}`);
+      setRecordOpen(false);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || e?.message || '优化记录入库失败');
+    } finally {
+      setRecordSubmitting(false);
+    }
   };
 
   const curTitle = editing ? editTitle : optimized.title;
@@ -2093,20 +2390,67 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
               <Button size="small" type="primary" icon={<CheckOutlined />} onClick={saveEdit}
                 style={{ background: RD[2] }}>保存</Button>
             )}
-            {isVariantMode && onPickVariant && (
-              <Tooltip title="以此候选为基础进入迭代修改流程，其他候选将被折叠">
-                <Button
-                  size="small"
-                  icon={<ThunderboltOutlined />}
-                  onClick={() => onPickVariant(version)}
-                  style={{ borderColor: '#f59e0b', color: '#b45309' }}
-                >
-                  选为主方案
-                </Button>
-              </Tooltip>
-            )}
-            <Button size="small" type="primary" icon={<DatabaseOutlined />} loading={embedding}
-              onClick={handleEmbed} style={{ background: R[4] }}>选入优秀库</Button>
+            <Tooltip title={memoryId ? (feedbackLiked ? '取消点赞' : '点赞这条结果') : '结果尚未持久化'}>
+              <Button
+                size="small"
+                icon={feedbackLiked ? <LikeFilled /> : <LikeOutlined />}
+                onClick={handleLike}
+                loading={feedbackSubmitting}
+                disabled={!memoryId}
+                type={feedbackLiked ? 'primary' : 'default'}
+                style={feedbackLiked
+                  ? { background: '#10b981', borderColor: '#10b981' }
+                  : { borderColor: '#10b981', color: '#047857' }}
+              >
+                点赞
+              </Button>
+            </Tooltip>
+            <Tooltip title={memoryId ? (feedbackDisliked ? '取消差劲' : '标记为差劲') : '结果尚未持久化'}>
+              <Button
+                size="small"
+                icon={feedbackDisliked ? <DislikeFilled /> : <DislikeOutlined />}
+                onClick={handleDislike}
+                loading={feedbackSubmitting}
+                disabled={!memoryId}
+                type={feedbackDisliked ? 'primary' : 'default'}
+                danger={feedbackDisliked}
+                style={feedbackDisliked
+                  ? undefined
+                  : { borderColor: '#ef4444', color: '#b91c1c' }}
+              >
+                差劲
+              </Button>
+            </Tooltip>
+            <Tooltip title={memoryId ? (commentSaved ? `已留言：${commentSaved.slice(0, 20)}${commentSaved.length > 20 ? '…' : ''}` : '写一条评论') : '结果尚未持久化'}>
+              <Button
+                size="small"
+                icon={<CommentOutlined />}
+                onClick={() => { setCommentDraft(commentSaved); setCommentOpen(true); }}
+                disabled={!memoryId}
+                type={commentSaved ? 'primary' : 'default'}
+                style={commentSaved
+                  ? { background: '#6366f1', borderColor: '#6366f1' }
+                  : { borderColor: '#6366f1', color: '#4338ca' }}
+              >
+                评论{commentSaved ? '已留' : ''}
+              </Button>
+            </Tooltip>
+            <Tooltip title="确认采用该优化结果，并写入优化记录库">
+              <Button
+                size="small"
+                type="primary"
+                icon={<DatabaseOutlined />}
+                onClick={() => {
+                  setRecordReason(optimized.optimization_notes || variant?.overall_summary || '');
+                  setRecordDirection(variant?.priority_actions?.join('；') || variant?.free_form_score?.suggestions?.join('；') || '');
+                  setRecordRemark('');
+                  setRecordOpen(true);
+                }}
+                style={{ background: R[3] }}
+              >
+                确认入库
+              </Button>
+            </Tooltip>
           </Space>
         </div>
       }
@@ -2202,9 +2546,10 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
             曝光评分意见（COSMO 四维）
           </Text>
           <div style={{
-            background: isBestVariant ? '#fffbeb' : '#eef2ff',
-            border: `1px solid ${isBestVariant ? '#fcd34d' : '#c7d2fe'}`,
+            background: isBestVariant ? 'rgba(245, 158, 11, 0.13)' : 'rgba(37, 99, 235, 0.14)',
+            border: `1px solid ${isBestVariant ? 'rgba(250, 204, 21, 0.42)' : 'rgba(96, 165, 250, 0.36)'}`,
             padding: '8px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.6, marginTop: 4,
+            color: '#dff7ff',
           }}>
             {variant.overall_summary && (
               <div style={{ marginBottom: variant.priority_actions?.length ? 6 : 0 }}>
@@ -2233,9 +2578,10 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
             </Tag>
           </Space>
           <div style={{
-            background: '#faf5ff',
-            border: '1px solid #e9d5ff',
+            background: 'rgba(88, 28, 135, 0.18)',
+            border: '1px solid rgba(167, 139, 250, 0.36)',
             padding: '8px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.6, marginTop: 4,
+            color: '#dff7ff',
           }}>
             {variant.free_form_score.summary && (
               <div style={{ marginBottom: 6 }}>{variant.free_form_score.summary}</div>
@@ -2243,7 +2589,7 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
             {variant.free_form_score.strengths?.length > 0 && (
               <div style={{ marginBottom: 2 }}>
                 <Text type="success" style={{ fontSize: 11, fontWeight: 600 }}>✅ 优点：</Text>
-                <span style={{ fontSize: 12, color: '#374151' }}>
+                <span style={{ fontSize: 12, color: '#dff7ff' }}>
                   {variant.free_form_score.strengths.join('；')}
                 </span>
               </div>
@@ -2251,7 +2597,7 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
             {variant.free_form_score.weaknesses?.length > 0 && (
               <div style={{ marginBottom: 2 }}>
                 <Text type="danger" style={{ fontSize: 11, fontWeight: 600 }}>⚠️ 不足：</Text>
-                <span style={{ fontSize: 12, color: '#374151' }}>
+                <span style={{ fontSize: 12, color: '#dff7ff' }}>
                   {variant.free_form_score.weaknesses.join('；')}
                 </span>
               </div>
@@ -2259,7 +2605,7 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
             {variant.free_form_score.suggestions?.length > 0 && (
               <div>
                 <Text type="warning" style={{ fontSize: 11, fontWeight: 600 }}>💡 建议：</Text>
-                <span style={{ fontSize: 12, color: '#374151' }}>
+                <span style={{ fontSize: 12, color: '#dff7ff' }}>
                   {variant.free_form_score.suggestions.join('；')}
                 </span>
               </div>
@@ -2291,40 +2637,58 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
         </div>
       )}
       {diagResult && (
-        <div style={{ borderTop: '1px dashed #E5E7EB', paddingTop: 12, marginBottom: 12 }}>
+        <div style={{ borderTop: '1px dashed rgba(122, 205, 232, 0.22)', paddingTop: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
             <Space size={6}>
-              <BarChartOutlined style={{ color: '#10B981' }} />
-              <Text strong style={{ fontSize: 13, color: '#10B981' }}>四维诊断</Text>
-              {diagResult.score != null && (
-                <Tag color={diagResult.score >= 70 ? 'success' : diagResult.score >= 50 ? 'warning' : 'error'}
-                  style={{ fontSize: 12 }}>
-                  {diagResult.score} 分
-                </Tag>
-              )}
+              <BarChartOutlined style={{ color: '#22d3ee' }} />
+              <Text strong style={{ fontSize: 13, color: '#dff7ff' }}>Listing 深度诊断</Text>
+              <Tag style={{
+                color: '#7acde8', background: 'rgba(34, 211, 238, 0.10)',
+                borderColor: 'rgba(34, 211, 238, 0.34)', fontSize: 12,
+              }}>
+                自我 + 对比
+              </Tag>
             </Space>
             <Button type="link" size="small" danger onClick={() => setDiagResult(null)}>关闭</Button>
           </div>
-          {diagResult.scores ? (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <RadarScoreChart scores={diagResult.scores} size={220} />
-              {diagResult.priority_actions && diagResult.priority_actions.length > 0 && (
-                <div style={{ width: '100%', fontSize: 12, lineHeight: 1.7, color: '#374151' }}>
-                  <Text strong style={{ fontSize: 12, color: '#EF4444' }}>🎯 优先行动：</Text>
-                  <ol style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                    {diagResult.priority_actions.map((a, i) => <li key={i}>{a}</li>)}
-                  </ol>
-                </div>
-              )}
-            </div>
-          ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 10 }}>
             <div style={{
-              background: '#F0FDF4', padding: '10px 12px', borderRadius: 8,
-              fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap', maxHeight: 300, overflow: 'auto',
+              background: 'linear-gradient(135deg, rgba(6, 23, 38, 0.90), rgba(8, 36, 54, 0.74))',
+              border: '1px solid rgba(122, 205, 232, 0.22)',
+              borderRadius: 10,
+              padding: 12,
+              boxShadow: '0 0 18px rgba(34, 211, 238, 0.08) inset',
             }}>
-              {diagResult.analysis}
+              <Text strong style={{ color: '#e6fbff', fontSize: 13 }}>自我诊断</Text>
+              <div style={{ marginTop: 8, color: '#dff7ff', fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                {diagResult.self_diagnosis.summary || '暂无摘要'}
+              </div>
+              {renderDiagField('优势', diagResult.self_diagnosis.strengths)}
+              {renderDiagField('问题', diagResult.self_diagnosis.weaknesses)}
+              {renderDiagField('修改建议', diagResult.self_diagnosis.suggestions)}
             </div>
-          )}
+
+            <div style={{
+              background: 'linear-gradient(135deg, rgba(8, 28, 45, 0.92), rgba(11, 41, 58, 0.76))',
+              border: '1px solid rgba(62, 166, 226, 0.24)',
+              borderRadius: 10,
+              padding: 12,
+              boxShadow: '0 0 20px rgba(59, 130, 246, 0.08) inset',
+            }}>
+              <Text strong style={{ color: '#e6fbff', fontSize: 13 }}>对比诊断</Text>
+              <div style={{ marginTop: 8, color: '#dff7ff', fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                {diagResult.comparison_diagnosis.summary || '暂无摘要'}
+              </div>
+              {renderDiagField('我产品优势', diagResult.comparison_diagnosis.own_advantages)}
+              {renderDiagField('我产品劣势', diagResult.comparison_diagnosis.own_disadvantages)}
+              {renderDiagField('竞品优势', diagResult.comparison_diagnosis.competitor_advantages)}
+              {renderDiagField('竞品劣势', diagResult.comparison_diagnosis.competitor_disadvantages)}
+              {renderDiagField('差评差距', diagResult.comparison_diagnosis.negative_review_gap)}
+              {renderDiagField('销量对比', diagResult.comparison_diagnosis.sales_comparison)}
+              {renderDiagField('产品潜力', diagResult.comparison_diagnosis.product_potential)}
+              {renderDiagField('优先调整', diagResult.comparison_diagnosis.suggestions)}
+            </div>
+          </div>
         </div>
       )}
 
@@ -2356,6 +2720,82 @@ function VersionCard({ version, index, asin, marketplace, selectedKeywords = [],
           提交领星
         </Button>
       </div>
+      <Modal
+        title={<span><CommentOutlined style={{ marginRight: 6, color: '#6366f1' }} />留下评论 / 反馈意见</span>}
+        open={commentOpen}
+        onCancel={() => setCommentOpen(false)}
+        onOk={handleSubmitComment}
+        confirmLoading={feedbackSubmitting}
+        okText={commentDraft.trim() ? '提交评论' : '清空已有评论'}
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          这条评论会写入 llm_memory，用于汇总用户对模型产出的真实反馈。
+        </Text>
+        <Input.TextArea
+          value={commentDraft}
+          onChange={e => setCommentDraft(e.target.value)}
+          autoSize={{ minRows: 4, maxRows: 10 }}
+          maxLength={2000}
+          showCount
+          placeholder="例如：标题信息密度太低 / 五点没有点出主卖点 / 关键词覆盖不足……"
+          style={{ marginTop: 8, borderRadius: 8 }}
+        />
+      </Modal>
+      <Modal
+        title={<span><DatabaseOutlined style={{ marginRight: 6, color: ACCENT }} />确认优化入库</span>}
+        open={recordOpen}
+        onCancel={() => setRecordOpen(false)}
+        onOk={handleCreateRecord}
+        confirmLoading={recordSubmitting}
+        okText="确认入库"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message={`ASIN ${asin} / ${marketplace}`}
+            description="会记录优化前文案、当前候选文案、图片到 MinIO，并保存 30 天统计时段内的 CTR/CVR/流量快照。"
+          />
+          <div>
+            <Text strong style={{ fontSize: 13 }}>优化原因</Text>
+            <Input.TextArea
+              value={recordReason}
+              onChange={e => setRecordReason(e.target.value)}
+              autoSize={{ minRows: 3, maxRows: 6 }}
+              maxLength={2000}
+              showCount
+              style={{ marginTop: 6 }}
+            />
+          </div>
+          <div>
+            <Text strong style={{ fontSize: 13 }}>优化方向</Text>
+            <Input.TextArea
+              value={recordDirection}
+              onChange={e => setRecordDirection(e.target.value)}
+              autoSize={{ minRows: 3, maxRows: 6 }}
+              maxLength={2000}
+              showCount
+              style={{ marginTop: 6 }}
+            />
+          </div>
+          <div>
+            <Text strong style={{ fontSize: 13 }}>备注</Text>
+            <Input.TextArea
+              value={recordRemark}
+              onChange={e => setRecordRemark(e.target.value)}
+              autoSize={{ minRows: 2, maxRows: 5 }}
+              maxLength={4000}
+              showCount
+              placeholder="可填写上线批次、负责人说明、观察口径等，后续可在记录页修改"
+              style={{ marginTop: 6 }}
+            />
+          </div>
+        </Space>
+      </Modal>
     </Card>
   );
 }
@@ -3086,7 +3526,9 @@ function BatchOptimizePanel() {
                     marketplace={resultRow.optimizeResult?.marketplace || resultRow.marketplace}
                     selectedKeywords={resultRow.selectedTrafficWords}
                     trafficWords={resultRow.discoveredTrafficWords}
-                    searchLibWords={[]} />
+                    searchLibWords={[]}
+                    productContext={resultRow.product || resultRow.optimizeResult?.original || null}
+                    competitorProducts={resultRow.competitors.filter(c => c.data).map(c => c.data!)} />
                 ))}
                 {resultRow.refineVersions.length > 0 && resultRow.refineVersions.length <= MAX_REFINE && (
                   <BatchRefinePanel
@@ -3401,7 +3843,7 @@ function BatchParamEditor({ row, onUpdate, onClose }: {
   };
 
   return (
-    <div>
+    <div className="listing-optimize-page">
       {/* 竞品 ASIN */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -3487,8 +3929,8 @@ function BatchParamEditor({ row, onUpdate, onClose }: {
             </Text>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
               {fab
-                ? 'COSMO 四维 + FAB 文案 + 评论洞察 + 每条 Bullet 3 个备选方案'
-                : '标准 SEO 优化（不含备选方案和评论洞察注入）'}
+                ? 'COSMO 四维 + FAB 文案 + 评论洞察 '
+                : '标准 SEO 优化（不含 FAB 结构和评论洞察注入）'}
             </Text>
           </div>
           <Switch checked={fab} onChange={setFab}
@@ -3654,11 +4096,10 @@ export default function ListingOptimize() {
   const [currentOptTaskId, setCurrentOptTaskId] = useState<string | null>(
     () => sessionStorage.getItem('lsta_opt_task_id') || null,
   );
-  const [currentAnaTaskId, setCurrentAnaTaskId] = useState<string | null>(
-    () => sessionStorage.getItem('lsta_ana_task_id') || null,
-  );
+  const [currentAnaTaskId, setCurrentAnaTaskId] = useState<string | null>(null);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const promptCfg = usePromptConfig();
   const [selectedModel, setSelectedModel] = useState<string | undefined>(
     () => sessionStorage.getItem('lsta_model') || undefined,
@@ -3775,10 +4216,10 @@ export default function ListingOptimize() {
   };
   const _initialAutoCache = _readAutoCompCache();
   const [autoCompetitors, setAutoCompetitors] = useState<CompetitorItem[]>(
-    () => _initialAutoCache?.competitors || [],
+    () => (_initialAutoCache?.competitors || []).slice(0, AUTO_COMPETITOR_LIMIT),
   );
   const [autoCompSelected, setAutoCompSelected] = useState<Set<string>>(
-    () => new Set(_initialAutoCache?.selected || []),
+    () => new Set((_initialAutoCache?.selected || []).slice(0, AUTO_COMPETITOR_LIMIT)),
   );
   const [autoCompLoading, setAutoCompLoading] = useState(false);
   const [autoCompError, setAutoCompError] = useState('');
@@ -3848,15 +4289,34 @@ export default function ListingOptimize() {
     }
   };
 
+  const selectedCompetitorProducts = useMemo<ProductData[]>(() => {
+    const manual = competitors.filter(c => c.data).map(c => c.data!);
+    const auto = autoCompetitors
+      .filter(c => autoCompSelected.has(c.asin) && c.product_data?.title)
+      .map(c => c.product_data as ProductData);
+    const seen = new Set<string>();
+    const merged: ProductData[] = [];
+    for (const pd of [...manual, ...auto]) {
+      const key = (pd?.asin || pd?.title || '').trim().toUpperCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(pd);
+      if (merged.length >= AUTO_COMPETITOR_LIMIT) break;
+    }
+    return merged;
+  }, [competitors, autoCompetitors, autoCompSelected]);
+
   /* ── FAB 增强模式开关（默认开启） ── */
   const [enableFab, setEnableFab] = useState(true);
 
-  /* ── 候选数量（Best-of-N，1~10；>1 时并行生成多份候选 + LLM 评分择优） ── */
+  /* ── 候选数量（Best-of-N，1~10；>1 时并行生成多份候选 + LLM 评分择优）。默认 3。 ── */
   const [variantCount, setVariantCount] = useState<number>(() => {
     try {
-      const v = Number(sessionStorage.getItem('lsta_variant_count'));
-      return v >= 1 && v <= 10 ? Math.round(v) : 1;
-    } catch { return 1; }
+      const raw = sessionStorage.getItem('lsta_variant_count');
+      if (raw == null || raw === '') return 3;
+      const v = Number(raw);
+      return v >= 1 && v <= 10 ? Math.round(v) : 3;
+    } catch { return 3; }
   });
   useEffect(() => {
     try { sessionStorage.setItem('lsta_variant_count', String(variantCount)); } catch {}
@@ -3867,7 +4327,7 @@ export default function ListingOptimize() {
 
   /* ── 优化 / 诊断结果（独立等待状态） ── */
   const [optimizeRunning, setOptimizeRunning] = useState(() => !!sessionStorage.getItem('lsta_opt_task_id'));
-  const [analyzeRunning, setAnalyzeRunning] = useState(() => !!sessionStorage.getItem('lsta_ana_task_id'));
+  const [analyzeRunning, setAnalyzeRunning] = useState(false);
   const [optimizeResult, setOptimizeResult] = useState<ListingOptimizeResponse | null>(() => {
     try { const r = sessionStorage.getItem(CACHE_KEY + '_optimize'); return r ? JSON.parse(r) : null; } catch { return null; }
   });
@@ -3879,6 +4339,10 @@ export default function ListingOptimize() {
       return parsed?.result ?? parsed ?? null;
     } catch { return null; }
   });
+  const [deepDiagnosticResult, setDeepDiagnosticResult] = useState<ListingDeepDiagnosticResponse | null>(() => {
+    try { const r = sessionStorage.getItem(CACHE_KEY + '_deepDiagnostic'); return r ? JSON.parse(r) : null; } catch { return null; }
+  });
+  const [analyzeStartedAt, setAnalyzeStartedAt] = useState<number | null>(null);
   const [refineVersions, setRefineVersions] = useState<RefineVersion[]>(() => {
     try { const r = sessionStorage.getItem(CACHE_KEY + '_refines'); return r ? JSON.parse(r) : []; } catch { return []; }
   });
@@ -3951,6 +4415,11 @@ export default function ListingOptimize() {
       } catch { /* */ }
     }
   }, [analyzeResult, product, asin, marketplace]);
+  useEffect(() => {
+    if (deepDiagnosticResult) {
+      try { sessionStorage.setItem(CACHE_KEY + '_deepDiagnostic', JSON.stringify(deepDiagnosticResult)); } catch {}
+    }
+  }, [deepDiagnosticResult]);
   useEffect(() => {
     try { sessionStorage.setItem(CACHE_KEY + '_refines', JSON.stringify(refineVersions)); } catch {}
   }, [refineVersions]);
@@ -4132,11 +4601,17 @@ export default function ListingOptimize() {
             setAutoCompError('');
             setAutoCompLoading(true);
             autoCompCacheKeyRef.current = { asin: prod.asin, marketplace: mkt };
+            const productForCompetitors: ProductData = {
+              ...prod,
+              price: prod.price || product?.price || '',
+              currency: prod.currency || product?.currency || 'USD',
+            };
             const tid = await submitTask(
               'discover_competitors',
               {
                 asin: prod.asin,
                 marketplace: mkt,
+                product_data: productForCompetitors,
                 max_results: 5,
                 with_details: true,
                 color: (data.db_color || '').trim() || undefined,
@@ -4159,6 +4634,11 @@ export default function ListingOptimize() {
       setFetchStage('idle');
     } else if (t.status === 'pending' || t.status === 'running') {
       setFetchingProduct(true);
+      // 产品数据一就绪就提前渲染，无需等三维诊断/流量词全部完成
+      const partialData = (t as any).partial as any;
+      if (partialData?.product) {
+        setProduct(prev => prev ?? partialData.product);
+      }
     }
   }, [tasks, fetchProductTaskId, _loadSearchTerms]);
 
@@ -4175,11 +4655,14 @@ export default function ListingOptimize() {
     }
     if (t.status === 'completed' && t.result) {
       const resp = t.result as CompetitorDiscoveryResponse;
-      const list = resp.competitors || [];
+      const list = (resp.competitors || []).slice(0, AUTO_COMPETITOR_LIMIT);
       setAutoCompetitors(list);
-      // 默认全选有完整 product_data 的竞品（bullet/description 才对优化有价值）
+      // 后端已按贴合度排序；这里只默认选择前 5 个有完整详情的精选竞品。
       const preSelected = new Set(
-        list.filter(c => c.product_data?.title).map(c => c.asin),
+        list
+          .filter(c => c.product_data?.title)
+          .slice(0, AUTO_COMPETITOR_LIMIT)
+          .map(c => c.asin),
       );
       setAutoCompSelected(preSelected);
       setAutoCompAvailable({
@@ -4295,22 +4778,7 @@ export default function ListingOptimize() {
         prompt_overrides: promptCfg.activeOverrides(),
         product_data: useProduct.title ? useProduct : undefined,
         optimize_sections: optimizeSections.length < 4 ? optimizeSections : undefined,
-        competitor_products: (() => {
-          const manual: ProductData[] = competitors.filter(c => c.data).map(c => c.data!);
-          const auto: ProductData[] = autoCompetitors
-            .filter(c => autoCompSelected.has(c.asin) && c.product_data?.title)
-            .map(c => c.product_data as ProductData);
-          // 去重（以 asin 为键，优先保留手动输入的）
-          const seen = new Set<string>();
-          const merged: ProductData[] = [];
-          for (const pd of [...manual, ...auto]) {
-            const k = (pd?.asin || '').toUpperCase();
-            if (!k || seen.has(k)) continue;
-            seen.add(k);
-            merged.push(pd);
-          }
-          return merged.length ? merged : undefined;
-        })(),
+        competitor_products: selectedCompetitorProducts.length ? selectedCompetitorProducts : undefined,
         enable_fab: enableFab,
         review_analysis: reviewAnalysis ?? undefined,
         variant_count: variantCount,
@@ -4335,50 +4803,243 @@ export default function ListingOptimize() {
     }
   };
 
-  /* ── 开始诊断（后台任务） ── */
+  /* ── 开始深度诊断：继承产品信息，补齐竞品，再生成自我 + 对比诊断 ── */
   const handleAnalyze = async () => {
     const p = product || EMPTY_PRODUCT;
     if (!asin.trim() && !p.asin) { message.warning('请输入 ASIN'); return; }
     setAnalyzeRunning(true);
+    setAnalyzeStartedAt(Date.now());
     setActionError('');
     setAnalyzeResult(null);
+    setDeepDiagnosticResult(null);
+    sessionStorage.removeItem(CACHE_KEY + '_deepDiagnostic');
+    sessionStorage.removeItem('lsta_ana_task_id');
+    setCurrentAnaTaskId(null);
     try {
-      const useProduct = p.asin ? p : { ...p, asin: asin.trim(), marketplace };
-      const params = {
-        asin: useProduct.asin || asin.trim(), marketplace: useProduct.marketplace || marketplace,
-        session_id: sessionId, model: selectedModel,
-        product_data: useProduct.title ? useProduct : undefined,
-      };
-      const taskId = await submitTask('analyze', params, {
-        asin: params.asin, marketplace: params.marketplace,
+      const targetAsin = (p.asin || asin.trim()).trim();
+      const targetMarketplace = p.marketplace || marketplace;
+      let useProduct: ProductData = p.title
+        ? { ...p, asin: targetAsin, marketplace: targetMarketplace }
+        : { ...(await listingApi.fetch({ asin: targetAsin, marketplace: targetMarketplace })).data, asin: targetAsin, marketplace: targetMarketplace };
+      if (!product?.title) setProduct(useProduct);
+
+      let compProducts = selectedCompetitorProducts;
+      if (compProducts.length < AUTO_COMPETITOR_LIMIT) {
+        message.info('正在补齐诊断所需的 5 条竞品信息...');
+        setAutoCompLoading(true);
+        setAutoCompError('');
+        const { data: compResp } = await listingApi.discoverCompetitors({
+          asin: targetAsin,
+          marketplace: targetMarketplace,
+          product_data: useProduct,
+          max_results: AUTO_COMPETITOR_LIMIT,
+          with_details: true,
+          color: productColor || undefined,
+        });
+        const discovered = (compResp.competitors || []).slice(0, AUTO_COMPETITOR_LIMIT);
+        setAutoCompetitors(discovered);
+        setAutoCompSelected(new Set(discovered.filter(c => c.product_data?.title).map(c => c.asin)));
+        setAutoCompAvailable({
+          colors: compResp.available_colors || [],
+          sizes: compResp.available_sizes || [],
+          styles: compResp.available_styles || [],
+        });
+        setAutoCompLoading(false);
+        setAutoCompError(compResp.error || '');
+        autoCompCacheKeyRef.current = { asin: targetAsin, marketplace: targetMarketplace };
+        compProducts = discovered
+          .filter(c => c.product_data?.title)
+          .map(c => c.product_data as ProductData)
+          .slice(0, AUTO_COMPETITOR_LIMIT);
+      }
+
+      const { data } = await listingApi.deepDiagnostic({
+        asin: targetAsin,
+        marketplace: targetMarketplace,
+        model: selectedModel,
+        product_data: useProduct,
+        current_title: useProduct.title,
+        current_bullet_points: useProduct.bullet_points || [],
+        current_description: useProduct.description || '',
+        current_search_terms: selectedTrafficWords.join(' '),
+        review_analysis: reviewAnalysis ?? undefined,
+        competitor_products: compProducts.slice(0, AUTO_COMPETITOR_LIMIT),
       });
-      setCurrentAnaTaskId(taskId);
-      sessionStorage.setItem('lsta_ana_task_id', taskId);
-      message.info('诊断任务已提交到后台，可自由切换页面');
+      setDeepDiagnosticResult(data);
+      message.success(`诊断完成，已纳入 ${compProducts.length} 条竞品做对比`);
     } catch (e: any) {
       setAnalyzeRunning(false);
+      setAutoCompLoading(false);
       const errMsg = e.response?.data?.detail || e.message || '提交失败';
       setActionError(errMsg);
       message.error(errMsg, 6);
+      return;
+    } finally {
+      setAnalyzeRunning(false);
     }
   };
 
+  const optimizeFlowSteps = [
+    {
+      key: 'input',
+      title: '产品输入',
+      desc: asin.trim() || 'ASIN / 站点',
+      icon: <SearchOutlined />,
+      state: asin.trim().length === 10 || product?.title ? 'done' : 'active',
+    },
+    {
+      key: 'product',
+      title: '产品获取',
+      desc: fetchingProduct ? '抓取中' : product?.title ? '已获取' : '等待抓取',
+      icon: <ShoppingOutlined />,
+      state: fetchingProduct ? 'active' : product?.title ? 'done' : 'idle',
+    },
+    {
+      key: 'competitor',
+      title: '竞品发现',
+      desc: autoCompLoading ? '自动寻找中' : autoCompetitors.length ? `已选 ${autoCompSelected.size}/${autoCompetitors.length}` : '差异化参考',
+      icon: <DatabaseOutlined />,
+      state: autoCompLoading ? 'active' : autoCompetitors.length ? 'done' : product?.title ? 'ready' : 'idle',
+    },
+    {
+      key: 'config',
+      title: '策略配置',
+      desc: `候选 x${variantCount} / ${enableFab ? 'FAB开' : 'FAB关'}`,
+      icon: <SettingOutlined />,
+      state: product?.title ? 'ready' : 'idle',
+    },
+    {
+      key: 'optimize',
+      title: 'AI 优化',
+      desc: optimizeRunning ? '生成与评分中' : optimizeResult ? '已完成' : '等待启动',
+      icon: <ThunderboltOutlined />,
+      state: optimizeRunning ? 'active' : optimizeResult ? 'done' : product?.title ? 'ready' : 'idle',
+    },
+    {
+      key: 'result',
+      title: '结果对比',
+      desc: optimizeResult?.variants?.length ? `${optimizeResult.variants.length} 份候选` : optimizeResult ? '可查看' : '待生成',
+      icon: <CheckOutlined />,
+      state: optimizeResult ? 'done' : 'idle',
+    },
+  ];
+
+  const analyzeTaskInfo = currentAnaTaskId ? tasks.get(currentAnaTaskId) : undefined;
+  const analyzeReportReady = !!deepDiagnosticResult;
+  const analyzeElapsedMs = analyzeTaskInfo?.elapsedMs
+    ?? (analyzeStartedAt ? Date.now() - analyzeStartedAt : 0);
+  const analyzeFlowSteps = [
+    {
+      key: 'input',
+      title: '诊断输入',
+      desc: asin.trim() || 'ASIN / 站点',
+      icon: <SearchOutlined />,
+      state: asin.trim().length === 10 || product?.title ? 'done' : 'active',
+    },
+    {
+      key: 'product',
+      title: '资料继承',
+      desc: fetchingProduct ? '抓取中' : product?.title ? '已继承产品信息' : '等待产品信息',
+      icon: <ShoppingOutlined />,
+      state: fetchingProduct ? 'active' : product?.title ? 'done' : 'idle',
+    },
+    {
+      key: 'evidence',
+      title: '评论图片',
+      desc: product?.images?.length || reviewAnalysis ? `图片 ${product?.images?.length || 0} / 评论已就绪` : '等待素材',
+      icon: <DatabaseOutlined />,
+      state: product?.images?.length || reviewAnalysis ? 'done' : product?.title ? 'ready' : 'idle',
+    },
+    {
+      key: 'diagnose',
+      title: 'AI 诊断',
+      desc: analyzeRunning ? '诊断中' : analyzeReportReady ? '已完成' : '等待启动',
+      icon: <BarChartOutlined />,
+      state: analyzeRunning ? 'active' : analyzeReportReady ? 'done' : product?.title ? 'ready' : 'idle',
+    },
+    {
+      key: 'structure',
+      title: '对比诊断',
+      desc: analyzeReportReady ? '竞品对比已生成' : selectedCompetitorProducts.length ? `竞品 ${selectedCompetitorProducts.length}/5` : '待获取竞品',
+      icon: <TagOutlined />,
+      state: analyzeReportReady ? 'done' : analyzeRunning || selectedCompetitorProducts.length ? 'ready' : 'idle',
+    },
+    {
+      key: 'result',
+      title: '诊断报告',
+      desc: analyzeReportReady ? '可查看' : '待输出',
+      icon: <CheckOutlined />,
+      state: analyzeReportReady ? 'done' : 'idle',
+    },
+  ];
+  const flowSteps = activeTab === 'analyze' ? analyzeFlowSteps : optimizeFlowSteps;
+  const flowTitle = activeTab === 'analyze' ? 'Listing 诊断执行链路' : 'Listing 优化执行链路';
+  const flowKicker = activeTab === 'analyze' ? 'LISTING DIAGNOSTIC WORKFLOW' : 'LISTING OPTIMIZE WORKFLOW';
+  const flowMeta = activeTab === 'analyze'
+    ? (analyzeRunning ? '诊断运行中' : analyzeReportReady ? '诊断报告已生成' : product?.title ? '诊断资料已就绪' : '等待产品输入')
+    : (optimizeRunning ? '优化运行中' : optimizeResult ? '已生成结果' : product?.title ? '产品信息已就绪' : '等待产品输入');
+
   return (
-    <div>
+    <div className="listing-optimize-page">
       {activeTab === 'batch' ? (
         <BatchOptimizePanel />
       ) : (
+      <>
+      <div className="lsta-flow-indicator" aria-label={flowTitle}>
+        <div className="lsta-flow-header">
+          <div>
+            <div className="lsta-flow-kicker">{flowKicker}</div>
+            <div className="lsta-flow-title">{flowTitle}</div>
+          </div>
+          <div className="lsta-flow-meta">
+            {flowMeta}
+          </div>
+        </div>
+        <div className="lsta-flow-track">
+          {flowSteps.map((step, idx) => (
+            <div
+              key={step.key}
+              className={`lsta-flow-step is-${step.state} ${idx < flowSteps.length - 1 ? 'has-next' : ''}`}
+            >
+              <div className="lsta-flow-node">
+                <span className="lsta-flow-icon">{step.icon}</span>
+              </div>
+              <div className="lsta-flow-copy">
+                <span>{step.title}</span>
+                <em>{step.desc}</em>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
       <Row gutter={24}>
         {/* ── 左侧：输入面板 ── */}
         <Col xs={24} lg={7}>
           <Card
             title="产品查询"
             extra={
-              <Tooltip title="提示词设置">
-                <Button type="text" icon={<SettingOutlined />}
-                  onClick={() => setSettingsOpen(true)}
-                  style={{ color: promptCfg.activeOverrides() ? ACCENT : undefined }} />
-              </Tooltip>
+              <Space size={0}>
+                <Tooltip title="细节设置（修改意见 / 模型 / FAB / 优化范围 / 候选数量）">
+                  <Button
+                    type="text"
+                    icon={<EditOutlined />}
+                    onClick={() => setDetailsOpen(true)}
+                    style={{
+                      color: (
+                        notes.trim()
+                        || (activeTab === 'optimize' && variantCount > 1)
+                        || (activeTab === 'optimize' && optimizeSections.length < ALL_SECTIONS.length)
+                        || (activeTab === 'optimize' && !enableFab)
+                      ) ? ACCENT : undefined,
+                    }}
+                  />
+                </Tooltip>
+                <Tooltip title="提示词设置">
+                  <Button type="text" icon={<SettingOutlined />}
+                    onClick={() => setSettingsOpen(true)}
+                    style={{ color: promptCfg.activeOverrides() ? ACCENT : undefined }} />
+                </Tooltip>
+              </Space>
             }
             style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', position: 'sticky', top: 88, zIndex: 10 }}
           >
@@ -4427,18 +5088,18 @@ export default function ListingOptimize() {
               const selectedCount = autoCompetitors.filter(c => autoCompSelected.has(c.asin)).length;
               const mkt = product?.marketplace || marketplace || 'US';
               return (
-                <div style={{ marginBottom: 12, background: '#FAFAFB', border: '1px solid #E5E7EB', borderRadius: 10, padding: 10 }}>
+                <div style={{ marginBottom: 12, background: 'rgba(6, 23, 38, 0.88)', border: '1px solid rgba(83, 210, 255, 0.28)', borderRadius: 10, padding: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <Text strong style={{ fontSize: 12 }}>
                       自动发现的竞品
                       {autoCompetitors.length > 0 && (
                         <Tag color="blue" style={{ marginLeft: 6, fontSize: 10 }}>
-                          已选 {selectedCount}/{autoCompetitors.length}
+                          精选 {selectedCount}/{Math.min(AUTO_COMPETITOR_LIMIT, autoCompetitors.length)}
                         </Tag>
                       )}
                     </Text>
                     <Text type="secondary" style={{ fontSize: 10 }}>
-                      勾选后将参与差异化优化
+                      仅选最贴合的 5 件参与优化
                     </Text>
                   </div>
                   {autoCompLoading && (
@@ -4461,7 +5122,7 @@ export default function ListingOptimize() {
                     <>
                       {/* 维度筛选 */}
                       {(autoCompAvailable.colors.length + autoCompAvailable.sizes.length + autoCompAvailable.styles.length) > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, padding: '6px 8px', background: '#fff', borderRadius: 6 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 8, padding: '6px 8px', background: 'rgba(2, 12, 23, 0.72)', border: '1px solid rgba(122, 205, 232, 0.2)', borderRadius: 6 }}>
                           {autoCompAvailable.colors.length > 0 && (
                             <div>
                               <Text type="secondary" style={{ fontSize: 10, marginRight: 6 }}>颜色：</Text>
@@ -4518,24 +5179,26 @@ export default function ListingOptimize() {
                           )}
                         </div>
                       )}
-                      {/* 竞品卡片列表 */}
+                      {/* 竞品卡片列表（按 ABCDE 标号，最多 5 条） */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {filtered.map(c => {
+                        {filtered.map((c, idx) => {
                           const checked = autoCompSelected.has(c.asin);
                           const hasDetail = !!c.product_data?.title;
+                          const label = ['A', 'B', 'C', 'D', 'E'][idx] ?? '';
+                          const bsr = c.bsr_rank || c.product_data?.bsr_rank || '';
                           return (
                             <div
                               key={c.asin}
                               style={{
                                 display: 'flex', gap: 6, padding: 6, borderRadius: 6,
-                                background: checked ? '#EFF6FF' : '#fff',
-                                border: `1px solid ${checked ? '#93C5FD' : '#E5E7EB'}`,
+                                background: checked ? 'rgba(14, 165, 199, 0.2)' : 'rgba(2, 12, 23, 0.66)',
+                                border: `1px solid ${checked ? 'rgba(53, 217, 255, 0.55)' : 'rgba(122, 205, 232, 0.22)'}`,
                                 transition: 'background .15s',
                               }}
                             >
                               <Checkbox
                                 checked={checked}
-                                disabled={!hasDetail}
+                                disabled={!hasDetail || (!checked && selectedCount >= AUTO_COMPETITOR_LIMIT)}
                                 onChange={e => {
                                   setAutoCompSelected(prev => {
                                     const next = new Set(prev);
@@ -4546,6 +5209,20 @@ export default function ListingOptimize() {
                                 }}
                                 style={{ alignSelf: 'flex-start', marginTop: 2 }}
                               />
+                              {label && (
+                                <div
+                                  title={`竞品 ${label}`}
+                                  style={{
+                                    width: 22, height: 22, borderRadius: '50%',
+                                    background: checked ? '#2563EB' : '#9CA3AF',
+                                    color: '#fff', fontSize: 11, fontWeight: 700,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    flexShrink: 0, alignSelf: 'flex-start', marginTop: 2,
+                                  }}
+                                >
+                                  {label}
+                                </div>
+                              )}
                               {c.image && (
                                 <img
                                   src={c.image}
@@ -4578,6 +5255,15 @@ export default function ListingOptimize() {
                                   {c.review_count && <> ({c.review_count})</>}
                                 </div>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 3 }}>
+                                  {bsr && (
+                                    <Tag
+                                      color="gold"
+                                      style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px', fontWeight: 600 }}
+                                      title="Best Sellers Rank"
+                                    >
+                                      BSR #{bsr}
+                                    </Tag>
+                                  )}
                                   {c.color && <Tag color="magenta" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>{c.color}</Tag>}
                                   {c.size && <Tag color="cyan" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>{c.size}</Tag>}
                                   {c.style && <Tag color="purple" style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '16px' }}>{c.style}</Tag>}
@@ -4683,126 +5369,62 @@ export default function ListingOptimize() {
                   onLevelChange={handleSearchTermLevelChange}
                   levelLoading={searchTermLevelLoading}
                 />
-                <div style={{ marginBottom: 12 }}>
-                  <Text strong style={{ fontSize: 12 }}>修改意见</Text>
-                  <Input.TextArea value={notes} onChange={e => setNotes(e.target.value)}
-                    placeholder="对优化结果的补充说明或特殊要求"
-                    autoSize={{ minRows: 2, maxRows: 4 }} style={{ marginTop: 4, borderRadius: 8 }} />
-                </div>
               </>
             )}
 
-            <div style={{ marginBottom: 16 }}>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                优化模型 <span style={{ color: '#9CA3AF' }}>（用于生成候选文案）</span>
-              </Text>
-              <ModelSelector value={selectedModel} onChange={handleModelChange} style={{ width: '100%' }} />
-            </div>
-            {activeTab === 'optimize' && variantCount > 1 && (
-              <div style={{ marginBottom: 16 }}>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                  评价模型 <span style={{ color: '#9CA3AF' }}>（用于多候选四维打分，留空则与优化模型相同）</span>
-                </Text>
-                <ModelSelector
-                  value={selectedEvalModel}
-                  onChange={handleEvalModelChange}
-                  style={{ width: '100%' }}
-                />
+            {/* ── 当前细节设置摘要（一行展示，便于不打开抽屉也能看） ── */}
+            <div
+              onClick={() => setDetailsOpen(true)}
+              style={{
+                marginBottom: 12, padding: '8px 12px', borderRadius: 10, cursor: 'pointer',
+                background: 'rgba(6, 23, 38, 0.88)', border: '1px dashed rgba(83, 210, 255, 0.28)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+              }}
+            >
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', flex: 1, minWidth: 0 }}>
+                <Tag color="default" style={{ fontSize: 11, margin: 0 }}>细节设置</Tag>
+                {activeTab === 'optimize' && (
+                  <>
+                    <Tag color={variantCount > 1 ? 'gold' : 'default'} style={{ fontSize: 11, margin: 0 }}>
+                      候选 ×{variantCount}
+                    </Tag>
+                    <Tag color={enableFab ? 'green' : 'default'} style={{ fontSize: 11, margin: 0 }}>
+                      FAB {enableFab ? '开' : '关'}
+                    </Tag>
+                    <Tag
+                      color={optimizeSections.length === ALL_SECTIONS.length ? 'blue' : 'orange'}
+                      style={{ fontSize: 11, margin: 0 }}
+                    >
+                      范围 {optimizeSections.length}/{ALL_SECTIONS.length}
+                    </Tag>
+                    {notes.trim() && (
+                      <Tag color="purple" style={{ fontSize: 11, margin: 0 }}>有修改意见</Tag>
+                    )}
+                  </>
+                )}
+                {selectedModel && (
+                  <Tag color="cyan" style={{ fontSize: 11, margin: 0, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    模型：{selectedModel}
+                  </Tag>
+                )}
               </div>
-            )}
+              <EditOutlined style={{ color: '#9CA3AF', fontSize: 13, flexShrink: 0 }} />
+            </div>
 
             {activeTab === 'optimize' ? (
-              <>
-                {/* ── FAB 增强模式开关 ── */}
-                <div style={{
-                  marginBottom: 14,
-                  background: enableFab ? '#f0fdf4' : '#f9fafb',
-                  border: `1px solid ${enableFab ? '#86efac' : '#e5e7eb'}`,
-                  borderRadius: 10,
-                  padding: '10px 14px',
-                  transition: 'all 0.2s',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <Text style={{ fontSize: 13, fontWeight: 600, color: enableFab ? '#15803d' : '#374151' }}>
-                        FAB 增强模式
-                      </Text>
-                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
-                        {enableFab
-                          ? 'COSMO 四维 + FAB 文案 + 评论洞察 + 每条 Bullet 3 个备选方案'
-                          : '标准 SEO 优化（不含备选方案和评论洞察注入）'}
-                      </Text>
-                    </div>
-                    <Switch
-                      checked={enableFab}
-                      onChange={setEnableFab}
-                      style={enableFab ? { background: '#16a34a' } : {}}
-                    />
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: 12 }}>
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>优化范围</Text>
-                  <Checkbox.Group
-                    value={optimizeSections}
-                    onChange={(vals) => setOptimizeSections(vals as string[])}
-                    style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 0' }}
-                  >
-                    {ALL_SECTIONS.map(k => (
-                      <Checkbox key={k} value={k} style={{ marginRight: 12, fontSize: 13 }}>
-                        {SEC_LABELS[k]}
-                      </Checkbox>
-                    ))}
-                  </Checkbox.Group>
-                </div>
-
-                {/* ── 候选数量（多候选 + LLM 评分择优） ── */}
-                <div style={{
-                  marginBottom: 14,
-                  background: variantCount > 1 ? '#fffbeb' : '#f9fafb',
-                  border: `1px solid ${variantCount > 1 ? '#fcd34d' : '#e5e7eb'}`,
-                  borderRadius: 10,
-                  padding: '10px 14px',
-                  transition: 'all 0.2s',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={{ fontSize: 13, fontWeight: 600, color: variantCount > 1 ? '#b45309' : '#374151' }}>
-                        候选数量（Best-of-N）
-                      </Text>
-                      <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
-                        {variantCount > 1
-                          ? `并行生成 ${variantCount} 份候选，LLM 四维评分后自动标注最优`
-                          : '仅生成 1 份（关闭 Best-of-N）'}
-                      </Text>
-                    </div>
-                    <InputNumber
-                      min={1}
-                      max={10}
-                      value={variantCount}
-                      onChange={(v) => {
-                        const n = Math.max(1, Math.min(10, Math.round(Number(v) || 1)));
-                        setVariantCount(n);
-                      }}
-                      size="small"
-                      style={{ width: 64, flexShrink: 0 }}
-                    />
-                  </div>
-                </div>
-                <Button
-                  type="primary" block size="large"
-                  icon={<ThunderboltOutlined />}
-                  loading={optimizeRunning}
-                  onClick={handleOptimize}
-                  disabled={optimizeSections.length === 0}
-                  style={{
-                    height: 48, borderRadius: 10, fontWeight: 600, fontSize: 15,
-                    background: optimizeSections.length === 0 ? undefined : R[1],
-                  }}
-                >
-                  {optimizeRunning ? '优化运行中...' : '开始优化'}
-                </Button>
-              </>
+              <Button
+                type="primary" block size="large"
+                icon={<ThunderboltOutlined />}
+                loading={optimizeRunning}
+                onClick={handleOptimize}
+                disabled={optimizeSections.length === 0}
+                style={{
+                  height: 48, borderRadius: 10, fontWeight: 600, fontSize: 15,
+                  background: optimizeSections.length === 0 ? undefined : R[1],
+                }}
+              >
+                {optimizeRunning ? '优化运行中...' : '开始优化'}
+              </Button>
             ) : (
               <Button
                 type="primary" block size="large"
@@ -4954,6 +5576,9 @@ export default function ListingOptimize() {
                                 selectedKeywords={selectedTrafficWords}
                                 trafficWords={discoveredTrafficWords}
                                 searchLibWords={searchLibSelectedWords}
+                                productContext={product || optimizeResult?.original || null}
+                                reviewAnalysis={reviewAnalysis}
+                                competitorProducts={selectedCompetitorProducts}
                               />
                             );
                           })}
@@ -4972,12 +5597,58 @@ export default function ListingOptimize() {
 
           {/* 诊断中 loading */}
           {activeTab === 'analyze' && analyzeRunning && (
-            <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', textAlign: 'center', padding: 60 }}>
-              <Spin size="large" />
-              <div style={{ marginTop: 20 }}>
-                <Text type="secondary" style={{ fontSize: 15 }}>
-                  AI 正在诊断 Listing，预计需要 30-60 秒...
-                </Text>
+            <Card style={{
+              borderRadius: 12,
+              border: '1px solid rgba(83, 210, 255, 0.22)',
+              background: 'linear-gradient(135deg, rgba(4, 14, 32, 0.94), rgba(6, 26, 44, 0.88))',
+              boxShadow: '0 18px 44px rgba(0, 0, 0, 0.24), inset 0 0 24px rgba(34, 211, 238, 0.05)',
+              marginBottom: 16,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 14 }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                  border: '1px solid rgba(71, 231, 255, 0.54)',
+                  boxShadow: '0 0 28px rgba(0, 229, 255, 0.32)',
+                  background: 'radial-gradient(circle at 35% 30%, rgba(34, 211, 238, 0.24), rgba(3, 13, 28, 0.96))',
+                }}>
+                  <Spin size="small" />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text strong style={{ color: '#e6fbff', fontSize: 15 }}>Listing 诊断链路观察</Text>
+                  <div style={{ marginTop: 6, fontSize: 12, color: '#93b8c7', lineHeight: 1.7 }}>
+                    当前状态 <strong style={{ color: '#25e7ff' }}>{analyzeTaskInfo?.status || 'running'}</strong>
+                    <span style={{ margin: '0 8px' }}>·</span>
+                    已用时 <strong style={{ color: '#bdefff' }}>{Math.max(1, Math.round(analyzeElapsedMs / 1000))}</strong> 秒
+                    <span style={{ margin: '0 8px' }}>·</span>
+                    {selectedCompetitorProducts.length >= AUTO_COMPETITOR_LIMIT ? '已带入 5 条竞品进入对比' : '正在补齐竞品并生成对比诊断'}
+                  </div>
+                </div>
+              </div>
+              <Progress
+                percent={analyzeTaskInfo?.status === 'running' ? 68 : 35}
+                size="small"
+                status="active"
+                showInfo={false}
+                strokeColor={{ from: '#22D3EE', to: '#3B82F6' }}
+                trailColor="rgba(122, 205, 232, 0.12)"
+                style={{ marginBottom: 14 }}
+              />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+                {[
+                  ['资料读取', product?.title ? '已就绪' : '补齐中'],
+                  ['竞品对比', selectedCompetitorProducts.length >= AUTO_COMPETITOR_LIMIT ? '已就绪' : '补齐中'],
+                  ['报告输出', '生成中'],
+                ].map(([label, desc]) => (
+                  <div key={label} style={{
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    border: '1px solid rgba(122, 205, 232, 0.18)',
+                    background: 'rgba(4, 18, 31, 0.72)',
+                  }}>
+                    <div style={{ color: '#dff7ff', fontSize: 12, fontWeight: 800 }}>{label}</div>
+                    <div style={{ color: '#7faec1', fontSize: 11, marginTop: 4 }}>{desc}</div>
+                  </div>
+                ))}
               </div>
             </Card>
           )}
@@ -5032,13 +5703,9 @@ export default function ListingOptimize() {
                       selectedKeywords={selectedTrafficWords}
                       trafficWords={discoveredTrafficWords}
                       searchLibWords={searchLibSelectedWords}
-                      onPickVariant={isMultiVariant
-                        ? (picked) => {
-                          setRefineVersions([{ optimized: picked.optimized, feedback: '' }]);
-                          message.success(`已选第 ${picked.variantRank} 候选作为主方案，可继续追加修改`);
-                        }
-                        : undefined
-                      }
+                      productContext={product || optimizeResult.original || null}
+                      reviewAnalysis={reviewAnalysis}
+                      competitorProducts={selectedCompetitorProducts}
                     />
                   ))}
                   {refineVersions.length > 0 && !isMultiVariant && (
@@ -5054,11 +5721,12 @@ export default function ListingOptimize() {
           })()}
 
           {/* 诊断结果 */}
-          {!analyzeRunning && analyzeResult && activeTab === 'analyze' && (
-            <AnalyzeResultCard data={analyzeResult} />
+          {!analyzeRunning && deepDiagnosticResult && activeTab === 'analyze' && (
+            <DeepDiagnosticResultCard data={deepDiagnosticResult} />
           )}
         </Col>
       </Row>
+      </>
       )}
 
       {/* ── 三维数据诊断 Drawer ── */}
@@ -5104,6 +5772,141 @@ export default function ListingOptimize() {
       </Drawer>
 
       <PromptSettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} promptCfg={promptCfg} />
+
+      {/* ── 细节设置 Drawer（修改意见 / 模型 / FAB / 优化范围 / 候选数量） ── */}
+      <Drawer
+        title={
+          <Space>
+            <EditOutlined style={{ color: ACCENT }} />
+            <span>细节设置</span>
+            <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+              修改意见 / 模型 / FAB / 优化范围 / 候选数量
+            </Text>
+          </Space>
+        }
+        open={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        width={Math.min(window.innerWidth * 0.5, 520)}
+        destroyOnClose={false}
+      >
+        {activeTab === 'optimize' && (
+          <div style={{ marginBottom: 16 }}>
+            <Text strong style={{ fontSize: 13 }}>修改意见</Text>
+            <Input.TextArea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="对优化结果的补充说明或特殊要求"
+              autoSize={{ minRows: 3, maxRows: 6 }}
+              style={{ marginTop: 6, borderRadius: 8 }}
+            />
+          </div>
+        )}
+
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+            优化模型 <span style={{ color: '#9CA3AF' }}>（用于生成候选文案）</span>
+          </Text>
+          <ModelSelector value={selectedModel} onChange={handleModelChange} style={{ width: '100%' }} />
+        </div>
+
+        {activeTab === 'optimize' && variantCount > 1 && (
+          <div style={{ marginBottom: 16 }}>
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+              评价模型 <span style={{ color: '#9CA3AF' }}>（用于多候选四维打分，留空则与优化模型相同）</span>
+            </Text>
+            <ModelSelector
+              value={selectedEvalModel}
+              onChange={handleEvalModelChange}
+              style={{ width: '100%' }}
+            />
+          </div>
+        )}
+
+        {activeTab === 'optimize' && (
+          <>
+            {/* ── FAB 增强模式开关 ── */}
+            <div style={{
+              marginBottom: 14,
+              background: enableFab ? '#f0fdf4' : '#f9fafb',
+              border: `1px solid ${enableFab ? '#86efac' : '#e5e7eb'}`,
+              borderRadius: 10,
+              padding: '10px 14px',
+              transition: 'all 0.2s',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <Text style={{ fontSize: 13, fontWeight: 600, color: enableFab ? '#15803d' : '#374151' }}>
+                    FAB 增强模式
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                    {enableFab
+                      ? 'COSMO 四维 + FAB 文案结构 + 评论洞察注入'
+                      : '标准 SEO 优化（不含 FAB 结构和评论洞察注入）'}
+                  </Text>
+                </div>
+                <Switch
+                  checked={enableFab}
+                  onChange={setEnableFab}
+                  style={enableFab ? { background: '#16a34a' } : {}}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>优化范围</Text>
+              <Checkbox.Group
+                value={optimizeSections}
+                onChange={(vals) => setOptimizeSections(vals as string[])}
+                style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 0' }}
+              >
+                {ALL_SECTIONS.map(k => (
+                  <Checkbox key={k} value={k} style={{ marginRight: 12, fontSize: 13 }}>
+                    {SEC_LABELS[k]}
+                  </Checkbox>
+                ))}
+              </Checkbox.Group>
+            </div>
+
+            {/* ── 候选数量（多候选 + LLM 评分择优） ── */}
+            <div style={{
+              marginBottom: 14,
+              background: variantCount > 1 ? '#fffbeb' : '#f9fafb',
+              border: `1px solid ${variantCount > 1 ? '#fcd34d' : '#e5e7eb'}`,
+              borderRadius: 10,
+              padding: '10px 14px',
+              transition: 'all 0.2s',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={{ fontSize: 13, fontWeight: 600, color: variantCount > 1 ? '#b45309' : '#374151' }}>
+                    候选数量（Best-of-N）
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                    {variantCount > 1
+                      ? `并行生成 ${variantCount} 份候选，LLM 四维评分后自动标注最优（默认 3）`
+                      : '仅生成 1 份（关闭 Best-of-N）'}
+                  </Text>
+                </div>
+                <InputNumber
+                  min={1}
+                  max={10}
+                  value={variantCount}
+                  onChange={(v) => {
+                    const n = Math.max(1, Math.min(10, Math.round(Number(v) || 1)));
+                    setVariantCount(n);
+                  }}
+                  size="small"
+                  style={{ width: 64, flexShrink: 0 }}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 24, gap: 8 }}>
+          <Button onClick={() => setDetailsOpen(false)}>关闭</Button>
+        </div>
+      </Drawer>
     </div>
   );
 }

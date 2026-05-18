@@ -161,23 +161,48 @@ def list_users() -> list[UserInfo]:
             permission_level=level,
             permission_name=PERMISSION_NAMES.get(level, str(level)),
             enabled=user_data.get("enabled", True),
+            custom_permissions=user_data.get("custom_permissions"),
+            data_restrictions=user_data.get("data_restrictions"),
         ))
     return result
 
 
-def create_user(username: str, password: str, display_name: str, permission_level: int, enabled: bool = True) -> UserInfo:
+def get_user_by_username(username: str) -> Optional[UserRecord]:
+    """按用户名读取用户（用于服务端侧权限校验与数据限制）。"""
+    users = _load_users()
+    user_data = users.get(username)
+    if not user_data:
+        return None
+    if not user_data.get("enabled", True):
+        return None
+    return UserRecord(**user_data)
+
+
+def create_user(
+    username: str,
+    password: str,
+    display_name: str,
+    permission_level: int,
+    enabled: bool = True,
+    custom_permissions: Optional[list] = None,
+    data_restrictions: Optional[dict] = None,
+) -> UserInfo:
     users = _load_users()
     if username in users:
         raise ValueError(f"用户名 '{username}' 已存在")
     if permission_level not in range(1, 6):
         raise ValueError("权限等级必须在 1-5 之间")
-    user_data = {
+    user_data: dict = {
         "username": username,
         "password_hash": _hash_password(password),
         "permission_level": permission_level,
         "display_name": display_name,
         "enabled": enabled,
     }
+    if custom_permissions is not None:
+        user_data["custom_permissions"] = custom_permissions
+    if data_restrictions is not None:
+        user_data["data_restrictions"] = data_restrictions
     users[username] = user_data
     _save_users(users)
     return UserInfo(
@@ -186,10 +211,21 @@ def create_user(username: str, password: str, display_name: str, permission_leve
         permission_level=permission_level,
         permission_name=PERMISSION_NAMES.get(permission_level, str(permission_level)),
         enabled=enabled,
+        custom_permissions=custom_permissions,
+        data_restrictions=data_restrictions,
     )
 
 
-def update_user(username: str, display_name: Optional[str], permission_level: Optional[int], enabled: Optional[bool], password: Optional[str]) -> UserInfo:
+def update_user(
+    username: str,
+    display_name: Optional[str],
+    permission_level: Optional[int],
+    enabled: Optional[bool],
+    password: Optional[str],
+    custom_permissions: Optional[list] = None,
+    clear_custom_permissions: bool = False,
+    data_restrictions: Optional[dict] = None,
+) -> UserInfo:
     users = _load_users()
     if username not in users:
         raise ValueError(f"用户 '{username}' 不存在")
@@ -204,6 +240,15 @@ def update_user(username: str, display_name: Optional[str], permission_level: Op
         user_data["enabled"] = enabled
     if password is not None and password.strip():
         user_data["password_hash"] = _hash_password(password)
+    if clear_custom_permissions:
+        user_data.pop("custom_permissions", None)
+    elif custom_permissions is not None:
+        user_data["custom_permissions"] = custom_permissions
+    if data_restrictions is not None:
+        if data_restrictions:
+            user_data["data_restrictions"] = data_restrictions
+        else:
+            user_data.pop("data_restrictions", None)
     users[username] = user_data
     _save_users(users)
     level = user_data["permission_level"]
@@ -213,6 +258,8 @@ def update_user(username: str, display_name: Optional[str], permission_level: Op
         permission_level=level,
         permission_name=PERMISSION_NAMES.get(level, str(level)),
         enabled=user_data.get("enabled", True),
+        custom_permissions=user_data.get("custom_permissions"),
+        data_restrictions=user_data.get("data_restrictions"),
     )
 
 

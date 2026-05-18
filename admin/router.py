@@ -179,6 +179,11 @@ def memory_stats():
     from Base.Service.memoryDbService import memory_db
     return memory_db.get_stats()
 
+@router.get("/lsta/stats", summary="LSTA 业务统计（优化/点赞/差劲/评论）")
+def lsta_stats():
+    from Base.Service.memoryDbService import memory_db
+    return memory_db.get_lsta_stats()
+
 @router.get("/memory/sessions")
 def memory_sessions(module: Optional[str] = None, page: int = 1, page_size: int = 20):
     from Base.Service.memoryDbService import memory_db

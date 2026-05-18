@@ -5,9 +5,9 @@ import time
 from datetime import datetime
 from decimal import Decimal
 from threading import Lock
-from typing import Any
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 
 from LDA.constants import SESSION_MAX, SESSION_TTL
 from LDA.core.sqlCore import LLMNLPtoSQL
@@ -25,6 +25,7 @@ from LDA.models.sqlState import (
 from LDA.service.base import service_logger
 from LDA.service.dbService import db_service
 from LDA.service.schemaService import schema_service
+from auth import service as auth_service
 
 logger = service_logger
 router = APIRouter()
@@ -64,6 +65,19 @@ def _serialize(v: Any) -> Any:
     return str(v)
 
 
+def _get_current_user(authorization: Optional[str]):
+    """从 Authorization 头解析当前用户；未传则返回 None，传错则抛 401。"""
+    if not authorization:
+        return None
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization 头格式错误")
+    token = authorization[7:]
+    user = auth_service.get_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Token 已过期或无效，请重新登录")
+    return user
+
+
 @router.get("/health", response_model=STIHealthResponse, summary="健康检查")
 def health():
     from admin.model_pool import model_pool
@@ -78,14 +92,26 @@ def health():
 
 
 @router.post("/chat", response_model=STIChatResponse, summary="主对话接口")
-def chat(req: STIChatRequest):
+def chat(req: STIChatRequest, authorization: Optional[str] = Header(None)):
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="message 不能为空")
 
+    current_user = _get_current_user(authorization)
+    # 以服务端用户配置为准，避免前端绕过或篡改。
+    # 若未携带 token，则回退到 user_id 对应的服务端用户配置。
+    # SQL 不再由后端拼接数据范围限制；复杂 CTE / 分页 / 别名容易导致查不到。
+    # 查询结果的展示范围交给前端按当前用户 data_restrictions 做行级筛选。
+    effective_restrictions = None
+
     engine = get_engine(req.session_id)
     intent = engine.classify_intent(req.message)
-    result = engine.query(req.message, session_id=req.session_id, user_id=req.user_id,
-                          preferred_model=req.model)
+    result = engine.query(
+        req.message,
+        session_id=req.session_id,
+        user_id=req.user_id,
+        preferred_model=req.model,
+        data_restrictions=effective_restrictions,
+    )
 
     return STIChatResponse(
         session_id=req.session_id,
@@ -151,12 +177,14 @@ def describe_table(table_name: str):
 
 
 @router.post("/sql", response_model=STISQLResponse, summary="执行原始 SQL（仅 SELECT）")
-def execute_sql(req: STISQLRequest):
-    is_safe, reason = db_service.validate_sql_safety(req.sql)
+def execute_sql(req: STISQLRequest, authorization: Optional[str] = Header(None)):
+    sql = req.sql
+
+    is_safe, reason = db_service.validate_sql_safety(sql)
     if not is_safe:
         return STISQLResponse(error=f"Safety Block: {reason}")
     try:
-        columns, rows = db_service.execute_sql(req.sql)
+        columns, rows = db_service.execute_sql(sql)
         serialized = [{k: _serialize(v) for k, v in row.items()} for row in rows]
         return STISQLResponse(columns=columns, rows=serialized, row_count=len(rows))
     except Exception as e:

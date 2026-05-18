@@ -48,10 +48,12 @@ def _normalize_price(raw_price: str, raw_currency: str, marketplace: str) -> Tup
     从 price 字符串中提取嵌入的货币符号，优先级高于独立的 currency 字段。
     """
     price_str = (raw_price or "").strip()
+    marketplace = (marketplace or "US").upper()
+    market_currency = _MARKETPLACE_CURRENCY.get(marketplace, "USD")
     currency = (raw_currency or "").strip()
 
     if not price_str:
-        return "", currency or _MARKETPLACE_CURRENCY.get(marketplace, "USD")
+        return "", currency or market_currency
 
     embedded_cur = ""
     for sym, code in sorted(_CURRENCY_SYMBOLS.items(), key=lambda x: -len(x[0])):
@@ -66,9 +68,13 @@ def _normalize_price(raw_price: str, raw_currency: str, marketplace: str) -> Tup
 
     numeric = re.sub(r"[^\d.,]", "", price_str).strip(" ,.")
     if not numeric:
-        return "", currency or embedded_cur or _MARKETPLACE_CURRENCY.get(marketplace, "USD")
+        return "", currency or embedded_cur or market_currency
 
-    final_currency = embedded_cur or currency or _MARKETPLACE_CURRENCY.get(marketplace, "USD")
+    final_currency = embedded_cur or currency or market_currency
+    # 代理偶发会在 US 页面把独立 currency 写成 CNY，但价格文本本身没有 CNY/￥ 前缀。
+    # 这种情况下按站点默认币种纠偏，避免竞品发现把所有 USD 候选过滤掉。
+    if currency and currency.upper() != market_currency and not embedded_cur:
+        final_currency = market_currency
     return numeric, final_currency
 
 
@@ -89,14 +95,14 @@ class AmazonProductService:
 
         if self._sp_api_configured():
             try:
-                return self._fetch_via_sp_api(asin, marketplace)
+                return self._with_mws_reviews(self._fetch_via_sp_api(asin, marketplace), marketplace)
             except Exception as e:
                 errors.append(f"SP-API: {e}")
                 logger.warning("SP-API 获取失败，回退到虚拟机代理: %s", e)
 
         if SCRAPER_PROXY_URL:
             try:
-                return self._fetch_via_proxy_vm(asin, marketplace)
+                return self._with_mws_reviews(self._fetch_via_proxy_vm(asin, marketplace), marketplace)
             except Exception as e:
                 errors.append(f"虚拟机代理: {e}")
                 logger.warning("虚拟机代理抓取失败: %s", e)
@@ -105,6 +111,22 @@ class AmazonProductService:
             f"所有抓取渠道均失败（ASIN={asin}, 站点={marketplace}）。"
             + (" | ".join(errors) if errors else "未配置 SP-API 或虚拟机代理")
         )
+
+    @staticmethod
+    def _with_mws_reviews(product: ProductData, marketplace: str) -> ProductData:
+        """评论统一优先取领星 MWS 评论表，避免页面/手机端评论抓取不稳定。"""
+        try:
+            from LSTA.service.mwsReviewService import mws_review_service
+            reviews = mws_review_service.query_reviews(
+                asin=product.asin,
+                marketplace=marketplace or product.marketplace or "US",
+                limit=30,
+            )
+            if reviews:
+                product.reviews = reviews
+        except Exception as exc:
+            logger.warning("MWS 评论补全失败 asin=%s: %s", product.asin, exc)
+        return product
 
     # ==================== 虚拟机代理 ====================
 
@@ -121,7 +143,29 @@ class AmazonProductService:
             raise RuntimeError(f"虚拟机代理返回状态码: {resp.status_code}")
         body = resp.json()
         if not body.get("success"):
-            raise RuntimeError(f"虚拟机代理抓取失败: {body.get('error', '未知错误')}")
+            debug = body.get("debug") or {}
+            attempts = debug.get("attempts") or []
+            attempt_summary = ""
+            if attempts:
+                parts = []
+                for item in attempts[-3:]:
+                    parts.append(
+                        f"#{item.get('attempt')} status={item.get('status')} "
+                        f"len={item.get('html_len')} block={item.get('block_reason') or '-'}"
+                    )
+                attempt_summary = "；尝试: " + " | ".join(parts)
+            parse = debug.get("parse") or {}
+            parse_summary = ""
+            candidates = parse.get("candidate_titles") or {}
+            if candidates:
+                preview = " | ".join(f"{k}={str(v)[:60]}" for k, v in list(candidates.items())[:3])
+                parse_summary = f"；标题候选: {preview}"
+            version = debug.get("version")
+            version_summary = f"；代理版本: {version}" if version else ""
+            raise RuntimeError(
+                f"虚拟机代理抓取失败: {body.get('error', '未知错误')}"
+                f"{version_summary}{attempt_summary}{parse_summary}"
+            )
         data = body["data"]
 
         price, currency = _normalize_price(
@@ -156,6 +200,7 @@ class AmazonProductService:
             description=data.get("description", ""),
             category=data.get("category", ""),
             bsr_rank=bsr,
+            monthly_sales_text=data.get("monthly_sales_text", "") or data.get("monthly_sales", ""),
             images=data.get("images", [])[:5],
             reviews=reviews,
         )

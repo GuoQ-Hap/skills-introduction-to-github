@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS `llm_memory` (
     `collection_name`   VARCHAR(128)  DEFAULT NULL         COMMENT 'Milvus集合 (Leang)',
     `extra`             JSON          DEFAULT NULL         COMMENT '扩展字段',
     `latency_ms`        INT           DEFAULT NULL         COMMENT '响应耗时(毫秒)',
+    `user_liked`        TINYINT(1)    DEFAULT 0            COMMENT '用户觉得赞（1=赞）',
+    `user_disliked`     TINYINT(1)    DEFAULT 0            COMMENT '用户觉得差（1=差）',
+    `user_comment`      TEXT          DEFAULT NULL         COMMENT '用户评论/反馈意见',
     `created_at`        DATETIME      DEFAULT CURRENT_TIMESTAMP,
     INDEX `idx_mod_sess`   (`module`, `session_id`),
     INDEX `idx_sess_time`  (`session_id`, `created_at`),
@@ -45,6 +48,13 @@ CREATE TABLE IF NOT EXISTS `llm_memory` (
     FULLTEXT INDEX `ft_query_resp` (`user_query`, `assistant_response`) WITH PARSER ngram
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='LLM 对话记忆统一存储（永久保留）';
 """
+
+# 老库自动补列（向后兼容已存在的表）
+_FEEDBACK_COLUMNS = [
+    ("user_liked",    "TINYINT(1) DEFAULT 0    COMMENT '用户觉得赞（1=赞）'"),
+    ("user_disliked", "TINYINT(1) DEFAULT 0    COMMENT '用户觉得差（1=差）'"),
+    ("user_comment",  "TEXT       DEFAULT NULL COMMENT '用户评论/反馈意见'"),
+]
 
 _table_ensured = False
 
@@ -56,6 +66,21 @@ def _ensure_table():
     try:
         client = MySQLClient()
         client.execute_sync(CREATE_TABLE_SQL)
+        # 旧库无反馈字段则补列（错误吞掉，不阻塞主流程）
+        try:
+            existing = client.execute_sync(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'llm_memory'"
+            ) or []
+            cols = {r["COLUMN_NAME"] for r in existing}
+            for name, ddl in _FEEDBACK_COLUMNS:
+                if name not in cols:
+                    client.execute_sync(
+                        f"ALTER TABLE `llm_memory` ADD COLUMN `{name}` {ddl}"
+                    )
+                    logger.info("llm_memory: 新增列 %s", name)
+        except Exception as inner:
+            logger.warning("llm_memory 列迁移失败（忽略）: %s", inner)
         client.close()
         _table_ensured = True
         logger.info("llm_memory 表已就绪")
@@ -404,6 +429,63 @@ class MemoryDbService:
             logger.error("读取记忆失败: %s", e)
             return None
 
+    # ═══════════════════════ 用户反馈（点赞/差劲/评论） ═══════════════════════
+
+    def update_feedback(
+        self,
+        memory_id: int,
+        *,
+        liked: Optional[bool] = None,
+        disliked: Optional[bool] = None,
+        comment: Optional[str] = None,
+        feedback_by: Optional[str] = None,
+    ) -> bool:
+        """更新指定记忆的用户反馈字段。
+
+        - liked / disliked 互斥：写一边自动清零另一边，避免同条同时点赞+踩。
+        - comment：None 表示不修改；空字符串表示清空已有评论。
+        - feedback_by：操作人 username，会合并写入 extra JSON（key: feedback_by）。
+        - 任意一个参数有效即触发更新。
+        """
+        sets: list[str] = []
+        params: list = []
+
+        if liked is True:
+            sets.extend(["`user_liked` = 1", "`user_disliked` = 0"])
+        elif liked is False:
+            sets.append("`user_liked` = 0")
+
+        if disliked is True:
+            sets.extend(["`user_disliked` = 1", "`user_liked` = 0"])
+        elif disliked is False:
+            sets.append("`user_disliked` = 0")
+
+        if comment is not None:
+            sets.append("`user_comment` = %s")
+            params.append(comment[:2000] if comment else None)
+
+        # 将反馈人写入 extra 的 feedback_by 字段（JSON_SET 方式原地合并）
+        if feedback_by:
+            sets.append(
+                "`extra` = JSON_SET(COALESCE(`extra`, '{}'), '$.feedback_by', %s)"
+            )
+            params.append(feedback_by)
+
+        if not sets:
+            return False
+
+        sql = f"UPDATE `llm_memory` SET {', '.join(sets)} WHERE `id` = %s"
+        params.append(memory_id)
+        try:
+            client = MySQLClient()
+            result = client.execute_sync(sql, tuple(params))
+            client.close()
+            affected = result[0]["affected_rows"] if result else 0
+            return affected > 0
+        except Exception as e:
+            logger.error("更新记忆反馈失败 id=%s: %s", memory_id, e)
+            return False
+
     # ═══════════════════════ 清除（仅后台管理手动调用） ═══════════════════════
 
     def clear_session(self, module: str, session_id: str) -> int:
@@ -489,6 +571,46 @@ class MemoryDbService:
         except Exception as e:
             logger.error("统计记忆失败: %s", e)
             return {"total_memories": 0, "modules": []}
+
+    def get_lsta_stats(self) -> Dict[str, Any]:
+        """LSTA 专项统计：优化次数、点赞、差劲、评论数量。"""
+        sqls = {
+            "optimize_count": (
+                "SELECT COUNT(*) AS v FROM `llm_memory` "
+                "WHERE `module`='lsta' AND `intent`='optimize'"
+            ),
+            "refine_count": (
+                "SELECT COUNT(*) AS v FROM `llm_memory` "
+                "WHERE `module`='lsta' AND `intent`='refine'"
+            ),
+            "liked_count": (
+                "SELECT COUNT(*) AS v FROM `llm_memory` "
+                "WHERE `module`='lsta' AND `user_liked`=1"
+            ),
+            "disliked_count": (
+                "SELECT COUNT(*) AS v FROM `llm_memory` "
+                "WHERE `module`='lsta' AND `user_disliked`=1"
+            ),
+            "comment_count": (
+                "SELECT COUNT(*) AS v FROM `llm_memory` "
+                "WHERE `module`='lsta' "
+                "AND `user_comment` IS NOT NULL AND `user_comment` != ''"
+            ),
+            "total_lsta": (
+                "SELECT COUNT(*) AS v FROM `llm_memory` WHERE `module`='lsta'"
+            ),
+        }
+        result: Dict[str, Any] = {}
+        try:
+            client = MySQLClient()
+            for key, sql in sqls.items():
+                rows = client.execute_sync(sql)
+                result[key] = rows[0]["v"] if rows else 0
+            client.close()
+        except Exception as e:
+            logger.error("LSTA 统计失败: %s", e)
+            result = {k: 0 for k in sqls}
+        return result
 
     # ═══════════════════════ 反序列化 ═══════════════════════
 

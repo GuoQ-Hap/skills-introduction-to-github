@@ -39,6 +39,7 @@ class ProductData(BaseModel):
     description: str = ""
     category: str = ""
     bsr_rank: str = ""
+    monthly_sales_text: str = Field("", description="Amazon 页面销量提示，如 50+ bought in past month")
     images: List[str] = []
     reviews: List[ReviewItem] = Field(default_factory=list, description="Top Reviews（最多10条）")
     variants: List[Dict[str, Any]] = []
@@ -73,12 +74,70 @@ class TrafficWordItem(BaseModel):
     reason: str = Field("", description="判定理由")
 
 
+class SpAdInsightItem(BaseModel):
+    """AK SP advertising term insight used by Listing optimization."""
+    date_start: str = ""
+    date_end: str = ""
+    store_name: str = ""
+    country_code: str = ""
+    profile_id: str = ""
+    asin: str = ""
+    sku: str = ""
+    word_type: str = ""
+    word_text: str = ""
+    match_type: str = ""
+    campaign_id: str = ""
+    campaign_name: str = ""
+    ad_group_id: str = ""
+    ad_group_name: str = ""
+    impressions: int = 0
+    clicks: int = 0
+    cost: float = 0
+    orders: int = 0
+    sales: float = 0
+    units: int = 0
+    ctr: float = 0
+    cpc: float = 0
+    cvr: float = 0
+    acos: float = 0
+    roas: float = 0
+    insight_type: str = ""
+    source_table: str = ""
+    reason: str = ""
+
+
+class SpAdInsightResponse(BaseModel):
+    asin: str
+    store_name: str = ""
+    days: int = 60
+    table: str = ""
+    total: int = 0
+    summary: Dict[str, int] = Field(default_factory=dict)
+    items: List[SpAdInsightItem] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class SpAdInsightSyncRequest(BaseModel):
+    days: int = Field(60, ge=1, le=366)
+    asin: Optional[str] = Field(None, min_length=10, max_length=10)
+    limit_per_type: int = Field(5000, ge=100, le=50000)
+
+
+class SpAdInsightQueryRequest(BaseModel):
+    asin: str = Field(..., min_length=10, max_length=10)
+    store_name: Optional[str] = ""
+    days: int = Field(60, ge=1, le=366)
+    limit: int = Field(80, ge=1, le=500)
+
+
 class FetchDiagnosticsResponse(BaseModel):
     """获取产品信息 + 三维诊断 + 流量词 + 评论分析的统一响应"""
     product: ProductData
     tri_dim: Optional[TriDimDiagnostic] = Field(None, description="三维诊断指标")
     traffic_words: List[TrafficWordItem] = Field(default_factory=list, description="流量词列表")
     traffic_word_count: int = Field(0, description="流量词总数")
+    sp_ad_insights: List[SpAdInsightItem] = Field(default_factory=list, description="AK SP advertising term insights")
+    sp_ad_insight_count: int = Field(0, description="AK SP advertising insight count")
     review_analysis: Optional["ReviewAnalysisResult"] = Field(
         None, description="评论分析结果（卖点/痛点/核心特点）",
     )
@@ -94,7 +153,7 @@ class TriDimDiagnosticSqlRequest(BaseModel):
     date_range: int = Field(30, ge=1, le=366)
     asin: Optional[str] = Field(None, description="可选，筛选 ASIN")
     page: int = Field(1, ge=1)
-    page_size: int = Field(50, ge=1, le=500)
+    page_size: int = Field(50, ge=1, le=5000)
     dims: Optional[List[str]] = Field(
         None, description="ctr / cvr / sessions；不传表示三维度全开"
     )
@@ -107,6 +166,7 @@ class TriDimDiagnosticSqlRequest(BaseModel):
         description="为 True 时仅保留至少命中一维异常的记录（与数据分析页一致）；抓取摘要 tri_dim 用 False",
     )
     include_count_sql: bool = Field(False, description="是否同时返回 count_sql")
+    sales_apartment: Optional[str] = Field(None, description="销售部门筛选，对应 dim_lingxing_product_info.sales_apartment")
 
 
 class TriDimDiagnosticSqlResponse(BaseModel):
@@ -134,6 +194,7 @@ class ListingOptimizeRequest(BaseModel):
     marketplace: str = Field("US", description="站点代码: US/UK/DE/JP/CA 等")
     target_keywords: List[str] = Field(default_factory=list, description="希望重点覆盖的关键词")
     target_audience: str = Field("", description="修改意见 / 补充说明")
+    sp_ad_insights: List[SpAdInsightItem] = Field(default_factory=list, description="AK SP advertising insights selected for prompt evidence")
     language: str = Field("", description="输出语言，留空则根据站点自动选择")
     optimize_strategy: OptimizeStrategy = Field(
         OptimizeStrategy.STANDARD,
@@ -287,7 +348,28 @@ class ListingOptimizeResponse(BaseModel):
         None,
         description="三维诊断命中摘要与采用的曝光/转化加权（variant_count>1 时有值）",
     )
+    memory_id: Optional[int] = Field(
+        None, description="本次优化在 llm_memory 表的主键，供前端提交点赞/差劲/评论反馈",
+    )
+    variant_memory_ids: List[Optional[int]] = Field(
+        default_factory=list,
+        description="多候选模式下每条 variant 各自的 llm_memory.id，顺序与 variants 一一对应",
+    )
     error: Optional[str] = None
+
+
+class MemoryFeedbackRequest(BaseModel):
+    """对单条 llm_memory 记录提交用户反馈（点赞/差劲/评论）。"""
+    memory_id: int = Field(..., description="llm_memory.id")
+    liked: Optional[bool] = Field(None, description="True=点赞；False=取消点赞；None=不变")
+    disliked: Optional[bool] = Field(None, description="True=差劲；False=取消差劲；None=不变")
+    comment: Optional[str] = Field(None, description="评论文本；空串=清空；None=不变")
+
+
+class MemoryFeedbackResponse(BaseModel):
+    success: bool
+    memory_id: int
+    message: str = ""
 
 
 class ListingAnalyzeRequest(BaseModel):
@@ -309,6 +391,73 @@ class ListingAnalyzeResponse(BaseModel):
     evaluate_analysis: Optional[EvaluateAnalysis] = Field(None, description="四维分析详情")
     overall_summary: str = ""
     priority_actions: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class ListingDeepDiagnosticRequest(BaseModel):
+    """Listing 子项深度诊断：结合本品图片/评论/文案与竞品做自我诊断和对比诊断。"""
+    asin: str = Field(..., min_length=10, max_length=10)
+    marketplace: str = Field("US")
+    model: Optional[str] = Field(None, description="指定模型 provider:model，空则使用主模型")
+    product_data: ProductData = Field(..., description="当前被诊断的本品数据（含原始图片/评论）")
+    current_title: str = Field("")
+    current_bullet_points: List[str] = Field(default_factory=list)
+    current_description: str = Field("")
+    current_search_terms: str = Field("")
+    review_analysis: Optional["ReviewAnalysisResult"] = Field(None, description="产品获取阶段的评论洞察")
+    competitor_products: List[ProductData] = Field(default_factory=list, description="已抓取的最多五条竞品详情")
+
+
+class ListingDeepDiagnosticSection(BaseModel):
+    summary: str = ""
+    strengths: List[str] = Field(default_factory=list)
+    weaknesses: List[str] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
+
+
+class ListingDeepComparisonSection(BaseModel):
+    summary: str = ""
+    own_advantages: List[str] = Field(default_factory=list)
+    own_disadvantages: List[str] = Field(default_factory=list)
+    competitor_advantages: List[str] = Field(default_factory=list)
+    competitor_disadvantages: List[str] = Field(default_factory=list)
+    negative_review_gap: List[str] = Field(default_factory=list)
+    sales_comparison: str = ""
+    product_potential: str = ""
+    suggestions: List[str] = Field(default_factory=list)
+
+
+class ListingCompetitorDiagnosticSection(BaseModel):
+    competitor_label: str = ""
+    competitor_asin: str = ""
+    competitor_title: str = ""
+    competitor_brand: str = ""
+    competitor_image: str = ""
+    competitor_monthly_sales_text: str = ""
+    competitor_bsr_rank: str = ""
+    summary: str = ""
+    image_comparison: str = ""
+    brand_comparison: str = ""
+    review_comparison: str = ""
+    listing_comparison: str = ""
+    title_comparison: str = ""
+    scenario_comparison: str = ""
+    sales_comparison: str = ""
+    own_advantages: List[str] = Field(default_factory=list)
+    own_disadvantages: List[str] = Field(default_factory=list)
+    competitor_advantages: List[str] = Field(default_factory=list)
+    competitor_disadvantages: List[str] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
+    raw_output: str = ""
+
+
+class ListingDeepDiagnosticResponse(BaseModel):
+    asin: str
+    marketplace: str
+    self_diagnosis: ListingDeepDiagnosticSection = Field(default_factory=ListingDeepDiagnosticSection)
+    comparison_diagnosis: ListingDeepComparisonSection = Field(default_factory=ListingDeepComparisonSection)
+    competitor_diagnoses: List[ListingCompetitorDiagnosticSection] = Field(default_factory=list)
+    raw_output: str = ""
     error: Optional[str] = None
 
 
@@ -509,6 +658,7 @@ class LAIHealthResponse(BaseModel):
     status: str
     time: str
     model: str
+    version: str = ""
 
 
 # ── 后台任务 ──────────────────────────────
@@ -518,6 +668,10 @@ class CompetitorDiscoveryRequest(BaseModel):
     """竞品发现请求（通过 Amazon 搜索）"""
     asin: str = Field(..., min_length=10, max_length=10)
     marketplace: str = Field("US")
+    product_data: Optional[ProductData] = Field(
+        None,
+        description="已获取的本品 ProductData；传入则竞品发现阶段复用，避免重复抓取本品。",
+    )
     price_tolerance: float = Field(0.3, ge=0.05, le=1.0, description="价格浮动比例，默认 ±30%")
     max_results: int = Field(20, ge=1, le=100)
     with_details: bool = Field(
@@ -527,6 +681,32 @@ class CompetitorDiscoveryRequest(BaseModel):
     color: str = Field(
         "",
         description="搜索关键词附加的颜色（如 Pink / Black）；为空则后端自动从 leang_product_info.colour 查询",
+    )
+    filter_by_color: bool = Field(
+        False,
+        description=(
+            "是否启用颜色维度过滤：本品有颜色（color 字段或库中查得）时，保留与本品颜色相同或颜色未知的竞品；"
+            "本品无颜色时本字段不生效。"
+        ),
+    )
+    filter_by_size: bool = Field(
+        False,
+        description=(
+            "是否启用尺寸维度过滤：本品能解析出尺寸时，保留与本品尺寸相同或尺寸未知的竞品；"
+            "本品无尺寸时本字段不生效。"
+        ),
+    )
+    filter_by_style: bool = Field(
+        False,
+        description=(
+            "是否启用款式/花色维度过滤：本品能解析出款式时，保留与本品款式相同或款式未知的竞品；"
+            "本品无款式时本字段不生效。"
+        ),
+    )
+    min_review_count: int = Field(
+        0,
+        ge=0,
+        description="竞品最低评论数（销量维度过滤），0 表示不限制。",
     )
 
 
@@ -540,6 +720,10 @@ class CompetitorItem(BaseModel):
     review_count: str = ""
     image: str = ""
     avg_price: Optional[float] = Field(None, description="提取的数值价格")
+    bsr_rank: str = Field(
+        "",
+        description="BSR 排名（with_details=True 时来自 product_data.bsr_rank）",
+    )
     # ── 维度抽取（从 title / proxy 字段解析，供前端按勾选筛选） ──
     color: str = Field("", description="主色调（从标题抽取的颜色词，小写英文）")
     size: str = Field("", description="尺寸（从标题抽取，如 S/M/L/XL/12inch 等）")
@@ -565,11 +749,174 @@ class CompetitorDiscoveryResponse(BaseModel):
     error: Optional[str] = None
 
 
+class MarketAnalysisRequest(BaseModel):
+    """市场分析请求（通过 Amazon 搜索方向词并聚合市场机会）"""
+    keyword: str = Field(..., min_length=1, max_length=120, description="用户输入的统计方向，如：地毯")
+    marketplace: str = Field("US", description="Amazon 站点")
+    max_results: int = Field(40, ge=5, le=100, description="最多分析的搜索结果数量")
+    max_pages: int = Field(2, ge=1, le=5, description="Amazon 搜索页数")
+    with_details: bool = Field(True, description="是否抓取头部商品详情与评论")
+    model: str = Field("", description="可选 LLM 模型")
+
+
+class MarketProductItem(BaseModel):
+    """市场分析中的单个商品样本"""
+    asin: str = ""
+    title: str = ""
+    brand: str = ""
+    price: str = ""
+    currency: str = ""
+    rating: str = ""
+    review_count: str = ""
+    image: str = ""
+    avg_price: Optional[float] = None
+    bsr_rank: str = ""
+    monthly_sales_text: str = ""
+    product_url: str = ""
+
+
+class MarketBrandStat(BaseModel):
+    brand: str
+    count: int = 0
+    avg_rating: Optional[float] = None
+    total_reviews: int = 0
+    sample_asins: List[str] = Field(default_factory=list)
+    description: str = Field("", description="品牌简介/样本定位摘要")
+
+
+class MarketPriceBand(BaseModel):
+    label: str
+    count: int = 0
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+
+
+class MarketAnalysisInsight(BaseModel):
+    hot_directions: List[str] = Field(default_factory=list)
+    review_pain_points: List[str] = Field(default_factory=list)
+    accessible_markets: List[str] = Field(default_factory=list)
+    market_capacity: str = ""
+    leading_brands: List[str] = Field(default_factory=list)
+    market_trends: List[str] = Field(default_factory=list)
+    top_tk_designers: List[str] = Field(default_factory=list)
+    opportunities: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class MarketAnalysisResponse(BaseModel):
+    keyword: str = ""
+    marketplace: str = "US"
+    search_keywords: List[str] = Field(default_factory=list)
+    total_found: int = 0
+    analyzed_count: int = 0
+    avg_price: Optional[float] = None
+    avg_rating: Optional[float] = None
+    total_reviews: int = 0
+    top_products: List[MarketProductItem] = Field(default_factory=list)
+    top_brands: List[MarketBrandStat] = Field(default_factory=list)
+    price_bands: List[MarketPriceBand] = Field(default_factory=list)
+    insight: MarketAnalysisInsight = Field(default_factory=MarketAnalysisInsight)
+    raw_notes: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class AdStrategyAnalyzeRequest(BaseModel):
+    """广告投放策略分析请求"""
+    asin: Optional[str] = Field(None, max_length=32)
+    sku: Optional[str] = Field(None, max_length=160)
+    store_name: Optional[str] = Field(None, max_length=80)
+    country_code: Optional[str] = Field(None, max_length=16)
+    days: int = Field(30, ge=7, le=180)
+    feedback_days: int = Field(7, ge=3, le=30)
+    limit: int = Field(80, ge=10, le=300)
+
+
+class AdStrategyActionCreateRequest(BaseModel):
+    """记录一条广告投放动作"""
+    action_date: str = Field("", description="动作日期 YYYY-MM-DD；为空则使用今天")
+    action_type: str = Field(..., max_length=64)
+    entity_type: str = Field(..., max_length=64)
+    entity_value: str = Field("", max_length=512)
+    asin: str = Field("", max_length=32)
+    sku: str = Field("", max_length=160)
+    store_name: str = Field("", max_length=80)
+    country_code: str = Field("", max_length=16)
+    profile_id: str = Field("", max_length=64)
+    campaign_id: str = Field("", max_length=64)
+    campaign_name: str = Field("", max_length=512)
+    ad_group_id: str = Field("", max_length=64)
+    ad_group_name: str = Field("", max_length=512)
+    before_value: str = Field("", max_length=512)
+    after_value: str = Field("", max_length=512)
+    reason: str = Field("", max_length=1024)
+    operator: str = Field("", max_length=80)
+    feedback_days: int = Field(7, ge=3, le=30)
+
+
+class AdStrategyFeedbackRequest(BaseModel):
+    """查询动作前后反馈"""
+    action_id: Optional[int] = None
+    asin: Optional[str] = None
+    days: int = Field(7, ge=3, le=30)
+
+
+class ListingOptimizeRecordCreateRequest(BaseModel):
+    """确认一条 Listing 优化结果入库。"""
+    asin: str = Field(..., min_length=10, max_length=10)
+    marketplace: str = Field("US", max_length=16)
+    store_name: str = Field("", max_length=80)
+    country_code: str = Field("", max_length=16)
+    sku: str = Field("", max_length=160)
+    optimization_reason: str = Field("", description="优化原因")
+    optimization_direction: str = Field("", description="优化方向")
+    remark: str = Field("", description="备注")
+    before_listing: OptimizedListing = Field(default_factory=OptimizedListing)
+    after_listing: OptimizedListing = Field(default_factory=OptimizedListing)
+    before_images: List[str] = Field(default_factory=list)
+    after_images: List[str] = Field(default_factory=list)
+    metric_period_days: int = Field(30, ge=7, le=180)
+    variant_rank: Optional[int] = None
+    variant_total: Optional[int] = None
+    source_memory_id: Optional[int] = None
+    extra: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ListingOptimizeRecordQueryRequest(BaseModel):
+    asin: Optional[str] = Field(None, max_length=10)
+    marketplace: Optional[str] = Field(None, max_length=16)
+    limit: int = Field(100, ge=1, le=500)
+
+
+class ListingOptimizeRecordDetailRequest(BaseModel):
+    id: int = Field(..., ge=1)
+
+
+class ListingOptimizeRecordUpdateRemarkRequest(BaseModel):
+    id: int = Field(..., ge=1)
+    remark: str = Field("", max_length=4000)
+
+
+class ListingOptimizeRecordUpdateStoreRequest(BaseModel):
+    id: int = Field(..., ge=1)
+    store_name: str = Field("", max_length=80)
+    country_code: str = Field("", max_length=16)
+    sku: str = Field("", max_length=160)
+
+
+class ListingOptimizeRecordStoreOptionsRequest(BaseModel):
+    asin: str = Field(..., min_length=10, max_length=10)
+
+
+class ListingOptimizeRecordDeleteRequest(BaseModel):
+    id: int = Field(..., ge=1)
+
+
 class TaskSubmitRequest(BaseModel):
     """提交后台任务请求"""
     action: str = Field(
         ...,
-        description="任务类型: optimize / analyze / discover_competitors / review_analysis / fetch_product / fetch_reviews",
+        description="任务类型: optimize / analyze / discover_competitors / market_analysis / review_analysis / fetch_product / fetch_reviews",
     )
     optimize_params: Optional[ListingOptimizeRequest] = Field(
         None, description="当 action=optimize 时的参数",
@@ -579,6 +926,9 @@ class TaskSubmitRequest(BaseModel):
     )
     competitor_params: Optional[CompetitorDiscoveryRequest] = Field(
         None, description="当 action=discover_competitors 时的参数",
+    )
+    market_analysis_params: Optional[MarketAnalysisRequest] = Field(
+        None, description="当 action=market_analysis 时的参数",
     )
     review_analysis_params: Optional["ReviewAnalysisRequest"] = Field(
         None, description="当 action=review_analysis 时的参数",

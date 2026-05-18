@@ -14,13 +14,20 @@ from LMA.feishu import FeishuBot
 from LDA.router.router import init_router as init_sti_router
 from LDA.feishu import STIFeishuBot
 from LSTA.router.router import init_router as init_listing_router
+from LAA.router.router import init_router as init_laa_router
 from admin.router import init_admin_router
 from auth import init_auth_router
 from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI()
+from version import APP_VERSION, APP_VERSION_FULL
+
+app = FastAPI(
+    title="LEANG AI 平台",
+    version=APP_VERSION,
+    description=f"LEANG AI 赋能平台 — {APP_VERSION_FULL}",
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -34,6 +41,7 @@ init_auth_router(app=app)
 init_leang_router(app=app)
 init_sti_router(app=app)
 init_listing_router(app=app)
+init_laa_router(app=app)
 # init_auto_alarm_router(app=app)
 init_admin_router(app=app)
 

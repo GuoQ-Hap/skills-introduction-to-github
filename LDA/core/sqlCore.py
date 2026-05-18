@@ -1,15 +1,9 @@
-"""LLM 驱动的 NLP-to-SQL 核心引擎。
-
-流程：意图识别 → (chat/followup/query) →
-  query: 关键字匹配 → LLM 生成 SQL → 执行 → 空结果重试 → LLM 分析结果 → 记忆
-
-模型调用统一走 ModelPoolService.call_llm，主模型失败自动切换备用池。
-"""
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 import time
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from admin.model_pool import model_pool
@@ -24,17 +18,12 @@ from LDA.service.base import service_logger
 from LDA.service.dbService import db_service
 from LDA.service.maskService import DataMasker
 from LDA.service.nlpService import nlp_service
-from LDA.service.schemaService import schema_service
+from LDA.skills.jsonSchemaReaderSkill import json_schema_reader_skill
 
 logger = service_logger
 
 
 class LLMNLPtoSQL:
-    """大模型驱动的 NLP-to-SQL 引擎（支持重试 + 对话记忆）。
-
-    所有 LLM 调用通过 model_pool.call_llm 统一管理，
-    主模型不可用时自动遍历备用池选取可用模型。
-    """
 
     def __init__(self):
         self.memory: List[Dict[str, Any]] = []
@@ -44,14 +33,15 @@ class LLMNLPtoSQL:
         self._memory_hydrated: bool = False
         self._preferred_model: Optional[str] = None
 
-    # ==================== 时间上下文 ====================
+    # ==================== 鏃堕棿涓婁笅鏂?====================
 
     @staticmethod
     def _get_time_context() -> Dict[str, str]:
         now = datetime.now()
-        last_month = (
-            f"{now.year - 1}年12月" if now.month == 1 else f"{now.year}年{now.month - 1}月"
-        )
+        if now.month == 1:
+            last_month = f"{now.year - 1}年12月"
+        else:
+            last_month = f"{now.year}年{now.month - 1}月"
         return {
             "current_time": now.strftime("%Y年%m月%d日 %H:%M:%S（%A）"),
             "this_year": str(now.year),
@@ -60,10 +50,9 @@ class LLMNLPtoSQL:
             "today": now.strftime("%Y-%m-%d"),
         }
 
-    # ==================== 记忆管理 ====================
+    # ==================== 璁板繂绠＄悊 ====================
 
     def hydrate_from_db(self, session_id: str) -> None:
-        """新建引擎时从 llm_memory 恢复近期轮次（与进程内 memory 上限一致）。"""
         if self._memory_hydrated:
             return
         self._memory_hydrated = True
@@ -87,7 +76,7 @@ class LLMNLPtoSQL:
                     "rows": row_list[:50],
                 })
         except Exception as e:
-            logger.warning("STI 从 llm_memory 恢复失败: %s", e)
+            logger.warning("STI 浠?llm_memory 鎭㈠澶辫触: %s", e)
 
     def _latency_ms(self) -> int:
         return int((time.time() - self._query_start) * 1000) if self._query_start else 0
@@ -124,7 +113,7 @@ class LLMNLPtoSQL:
                 latency_ms=self._latency_ms(),
             )
         except Exception as e:
-            logger.warning("STI 持久化记忆失败: %s", e)
+            logger.warning("STI 鎸佷箙鍖栬蹇嗗け璐? %s", e)
 
     def _add_memory(
         self,
@@ -168,7 +157,7 @@ class LLMNLPtoSQL:
     def _build_memory_context(self) -> str:
         if not self.memory:
             return ""
-        lines = ["## 历史对话记忆（最近的查询，可用于理解用户上下文）"]
+        lines = ["## 历史对话记忆（最近查询，可用于理解用户上下文）"]
         for i, m in enumerate(self.memory[-5:], 1):
             lines.append(
                 f"[第{i}轮] 用户: {m['user_query']}\n"
@@ -181,7 +170,7 @@ class LLMNLPtoSQL:
     def clear_memory(self):
         self.memory.clear()
 
-    # ==================== 意图识别 ====================
+    # ==================== 鎰忓浘璇嗗埆 ====================
 
     def classify_intent(self, user_input: str) -> str:
         cleaned = user_input.strip()
@@ -191,9 +180,9 @@ class LLMNLPtoSQL:
             r"^(再见|拜拜|bye|退出)",
             r"^(你是谁|你叫什么|介绍一下你自己)",
             r"^(你能做什么|你会什么|有什么功能|怎么用|帮助|help)",
-            r"^(好的|嗯嗯|OK|ok|收到|明白了|知道了)$",
+            r"^(好的|嗯|OK|ok|收到|明白了|知道了)$",
             r"^(早上好|下午好|晚上好|早安|晚安)",
-            r"^(辛苦了|厉害|牛|不错|棒)",
+            r"^(辛苦了|厉害|不错|棒)",
         ]
         for p in chat_patterns:
             if re.search(p, cleaned, re.IGNORECASE):
@@ -207,7 +196,7 @@ class LLMNLPtoSQL:
             for kw in [
                 "销售", "库存", "广告", "利润", "退货", "订单",
                 "采购", "物流", "目标", "评论", "店铺", "品类",
-                "SKU", "ASIN", "FBA", "仓", "花费", "成本",
+                "SKU", "ASIN", "FBA", "价格", "花费", "成本",
             ]
         ):
             return "chat"
@@ -231,10 +220,9 @@ class LLMNLPtoSQL:
             return any(re.search(p, text) for p in followup_patterns)
         return False
 
-    # ==================== LLM 调用（统一走模型池） ====================
+    # ==================== LLM 璋冪敤锛堢粺涓€璧版ā鍨嬫睜锛?====================
 
     def _call_llm(self, messages: List[Dict], temperature: float = 0.1) -> str:
-        """通过模型池统一调用 LLM，主模型失败自动切换到备用池下一个模型。"""
         return model_pool.call_llm(
             messages=messages,
             temperature=temperature,
@@ -244,7 +232,7 @@ class LLMNLPtoSQL:
             preferred_model=self._preferred_model,
         )
 
-    # ==================== 聊天 ====================
+    # ==================== 鑱婂ぉ ====================
 
     def chat(self, user_input: str) -> str:
         time_ctx = self._get_time_context()
@@ -258,28 +246,17 @@ class LLMNLPtoSQL:
         ]
         return self._call_llm(messages, temperature=0.5)
 
-    # ==================== SQL 生成 ====================
+    # ==================== SQL 鐢熸垚 ====================
 
     def _build_schema_context(self, matched_tables: List[Dict]) -> str:
         if not matched_tables:
-            return "-- 未找到候选表"
+            return "-- 鏈壘鍒板€欓€夎〃"
         parts = []
         for t in matched_tables[:5]:
             table_name = t["table"]
-            info = schema_service.tables[table_name]
-            lines = [
-                f"-- {info['layer']} | {info['description_cn']}",
-                f"CREATE TABLE `{table_name}` (",
-            ]
-            for col in info["columns"]:
-                line = f"  `{col['name']}` {col['type']}"
-                if col["description_cn"] and col["description_cn"] != col["name"]:
-                    line += f"  -- {col['description_cn']}"
-                lines.append(line + ",")
-            if lines[-1].endswith(","):
-                lines[-1] = lines[-1][:-1]
-            lines.append(");")
-            parts.append("\n".join(lines))
+            profile = json_schema_reader_skill.get_table_profile(table_name, max_columns=120)
+            if profile:
+                parts.append(json_schema_reader_skill.profile_to_schema_context(profile))
         return "\n\n".join(parts)
 
     @staticmethod
@@ -290,8 +267,160 @@ class LLMNLPtoSQL:
             sql = re.sub(r"\s*```$", "", sql)
         sql = sql.replace("\u2018", "'").replace("\u2019", "'")  # ' '
         sql = sql.replace("\u201C", '"').replace("\u201D", '"')  # " "
-        sql = sql.replace("\uFF07", "'")  # ＇全角单引号
+        sql = sql.replace("\uFF07", "'")  # 锛囧叏瑙掑崟寮曞彿
         return sql.strip()
+
+    def _build_restriction_prompt(self) -> str:
+        restrictions = getattr(self, "_data_restrictions", {})
+        if not restrictions:
+            return ""
+        field_names = {
+            "store_name": "店铺(store_name)",
+            "brand": "品牌(brand)",
+            "salesman": "运营(salesman)",
+            "category_2": "类目(category_2)",
+            "country_code": "国家(country_code)",
+            "sales_apartment": "销售部门(sales_apartment)",
+        }
+        parts = []
+        for field, values in restrictions.items():
+            if values:
+                label = field_names.get(field, field)
+                vals = "、".join(f"'{v}'" for v in values)
+                parts.append(f"  - {label} 只能查询这些值：{vals}")
+        if not parts:
+            return ""
+        return (
+            "\n\n⚠️【强制数据访问限制 - 必须遵守】\n"
+            "以下字段的查询结果必须通过 WHERE 条件限定在授权范围内。"
+            "无论用户问什么，都必须加上这些过滤条件：\n"
+            + "\n".join(parts)
+        )
+
+    @staticmethod
+    def _apply_data_restrictions_sql(sql: str, restrictions: Optional[Dict[str, List]]) -> str:
+        if not restrictions or not sql or not sql.strip():
+            return sql
+        s = sql.strip()
+        if s.startswith("--"):
+            return sql
+
+        candidate_clauses: List[tuple[str, str]] = []
+        for field, values in restrictions.items():
+            if not field or not isinstance(values, (list, tuple)):
+                continue
+            fname = str(field).strip()
+            if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", fname):
+                continue
+            esc: List[str] = []
+            for v in values:
+                if v is None:
+                    continue
+                t = str(v).strip().replace("'", "''")
+                if t:
+                    esc.append(t)
+            if not esc:
+                continue
+            in_list = ", ".join(f"'{x.lower()}'" for x in esc)
+            column_ref = LLMNLPtoSQL._restriction_column_ref(s, fname)
+            clause = f"LOWER(TRIM(CAST({column_ref} AS STRING))) IN ({in_list})"
+            candidate_clauses.append((fname.lower(), clause))
+
+        if not candidate_clauses:
+            return sql
+
+        where_sql = " AND ".join(clause for _, clause in candidate_clauses)
+        injected = LLMNLPtoSQL._inject_restrictions_into_sql(s, where_sql)
+        if injected and injected != s:
+            ok, reason = db_service.validate_sql_safety(injected)
+            if ok:
+                return injected
+            logger.warning("内层注入数据权限后未通过安全校验，将尝试外层包装: %s", reason)
+
+        clauses: List[str] = []
+        available_cols: set[str] = set()
+        inner = s.rstrip(";").strip()
+        probe_sql = f"SELECT * FROM (\n{inner}\n) AS _sti_probe LIMIT 0"
+        ok_probe, _ = db_service.validate_sql_safety(probe_sql)
+        if ok_probe:
+            try:
+                probe_cols, _ = db_service.execute_sql(probe_sql)
+                available_cols = {str(c).lower() for c in (probe_cols or [])}
+            except Exception as e:
+                logger.warning("权限列探测失败，跳过外层权限注入: %s", e)
+
+        for fname, clause in candidate_clauses:
+            if fname in available_cols:
+                clauses.append(clause)
+
+        if not clauses:
+            logger.warning("数据权限无法注入，阻断本次查询。restrictions=%s sql=%s", restrictions, sql[:500])
+            return "-- Safety Block: 数据权限过滤无法生效，已阻断本次查询"
+
+        where_sql = " AND ".join(clauses)
+        wrapped = f"SELECT * FROM (\n{inner}\n) AS _sti_restr_sub WHERE {where_sql}"
+        ok, reason = db_service.validate_sql_safety(wrapped)
+        if not ok:
+            logger.warning("包装权限 SQL 后未通过安全校验: %s", reason)
+            return f"-- Safety Block: 数据权限过滤无法生效: {reason}"
+        return wrapped
+
+    @staticmethod
+    def _restriction_column_ref(sql: str, field: str) -> str:
+        if re.search(r"\bfrom\s+product_30d\s+p\b", sql, flags=re.IGNORECASE):
+            return f"p.`{field}`"
+        return f"`{field}`"
+
+    @staticmethod
+    def _inject_restrictions_into_sql(sql: str, where_sql: str) -> str:
+        body = sql.strip().rstrip(";").strip()
+        if not body:
+            return sql
+
+        lower = body.lower()
+        depth = 0
+        insert_at = len(body)
+        has_top_level_where = False
+        where_at: Optional[int] = None
+        i = 0
+        while i < len(body):
+            ch = body[i]
+            if ch == "'":
+                i += 1
+                while i < len(body):
+                    if body[i] == "'" and i + 1 < len(body) and body[i + 1] == "'":
+                        i += 2
+                        continue
+                    if body[i] == "'":
+                        break
+                    i += 1
+            elif ch == '"':
+                i += 1
+                while i < len(body) and body[i] != '"':
+                    i += 1
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth = max(0, depth - 1)
+            elif depth == 0:
+                if re.match(r"\bwhere\b", lower[i:]):
+                    has_top_level_where = True
+                    if where_at is None:
+                        where_at = i
+                if re.match(r"\b(group\s+by|having|order\s+by|limit|offset|union)\b", lower[i:]):
+                    insert_at = i
+                    break
+            i += 1
+
+        head = body[:insert_at].rstrip()
+        tail = body[insert_at:].lstrip()
+        if has_top_level_where and where_at is not None and where_at < insert_at:
+            prefix = body[:where_at].rstrip()
+            condition = body[where_at + len("where"):insert_at].strip()
+            return f"{prefix} WHERE ({condition}) AND {where_sql}" + (f" {tail}" if tail else "")
+        connector = " AND " if has_top_level_where else " WHERE "
+        return f"{head}{connector}{where_sql}" + (f" {tail}" if tail else "")
+
 
     def generate_sql(
         self, user_query: str, exclude_tables: Optional[List[str]] = None
@@ -307,6 +436,7 @@ class LLMNLPtoSQL:
         schema_ctx = self._build_schema_context(matched)
         memory_ctx = self._build_memory_context()
         time_ctx = self._get_time_context()
+        restriction_prompt = self._build_restriction_prompt()
 
         system_parts = [SQL_SYSTEM_PROMPT.format(
             company_profile=COMPANY_PROFILE,
@@ -315,6 +445,8 @@ class LLMNLPtoSQL:
             this_month=time_ctx["this_month"],
             last_month=time_ctx["last_month"],
         )]
+        if restriction_prompt:
+            system_parts.append(restriction_prompt)
         if memory_ctx:
             system_parts.append(memory_ctx)
 
@@ -329,7 +461,7 @@ class LLMNLPtoSQL:
             sql = f"-- Safety Block: {reason}"
         return sql, matched
 
-    # ==================== 结果分析 ====================
+    # ==================== 缁撴灉鍒嗘瀽 ====================
 
     def analyze_results(
         self, user_query: str, sql: str, columns: List[str], rows: List[Dict]
@@ -372,18 +504,35 @@ class LLMNLPtoSQL:
         ]
         return self._call_llm(messages, temperature=0.3)
 
-    # ==================== 执行 ====================
+    # ==================== 鎵ц ====================
 
     @staticmethod
     def _execute(sql: str) -> Tuple[List[str], List[Dict], Optional[str]]:
-        """执行 SQL，返回 (columns, rows, error)。不做重试、不做 LLM 修复。"""
         try:
             columns, rows = db_service.execute_sql(sql)
             return columns, rows, None
         except Exception as e:
             return [], [], str(e)
 
-    # ==================== 主入口 ====================
+    @staticmethod
+    def _serialize_cell(value: Any) -> Any:
+        if value is None or isinstance(value, (int, float, str, bool)):
+            return value
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return float(value)
+        return str(value)
+
+    @classmethod
+    def _serialize_rows(cls, rows: List[Dict], *, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        selected_rows = rows if limit is None else rows[:limit]
+        return [
+            {str(k): cls._serialize_cell(v) for k, v in row.items()}
+            for row in selected_rows
+        ]
+
+    # ==================== 涓诲叆鍙?====================
 
     def query(
         self,
@@ -392,12 +541,14 @@ class LLMNLPtoSQL:
         session_id: str,
         user_id: Optional[str] = None,
         preferred_model: Optional[str] = None,
+        data_restrictions: Optional[Dict[str, List]] = None,
     ) -> Dict[str, Any]:
-        """完整流程：意图识别 → SQL → 执行（单次，不重试） → 分析 → 记忆"""
+        # Full query pipeline.
         self._persist_session_id = session_id or None
         self._persist_user_id = user_id
         self._preferred_model = preferred_model
         self._query_start = time.time()
+        self._data_restrictions = data_restrictions or {}
 
         result: Dict[str, Any] = {
             "query": user_input, "sql": None, "matched_tables": [],
@@ -405,9 +556,9 @@ class LLMNLPtoSQL:
         }
 
         intent = self.classify_intent(user_input)
-        logger.info("查询: %s, 意图: %s", user_input[:50], intent)
+        logger.info("鏌ヨ: %s, 鎰忓浘: %s", user_input[:50], intent)
 
-        # ---- 聊天 ----
+        # ---- 鑱婂ぉ ----
         if intent == "chat":
             try:
                 result["analysis"] = self.chat(user_input)
@@ -420,7 +571,7 @@ class LLMNLPtoSQL:
                 result["error"] = f"Chat failed: {e}"
             return result
 
-        # ---- 跟进 ----
+        # ---- 璺熻繘 ----
         if intent == "followup":
             last = self._get_last_result()
             if last:
@@ -430,6 +581,7 @@ class LLMNLPtoSQL:
                     )
                     result.update(sql=last["sql"], analysis=analysis, data={
                         "columns": last["columns"], "row_count": last["row_count"],
+                        "rows": self._serialize_rows(last["rows"]),
                     })
                     self._add_memory(
                         user_input, last["sql"], last["row_count"],
@@ -440,12 +592,14 @@ class LLMNLPtoSQL:
                     result["error"] = f"Analysis failed: {e}"
                 return result
 
-        # ---- 生成 SQL ----
+        # ---- 鐢熸垚 SQL ----
         try:
             sql, matched = self.generate_sql(user_input)
         except Exception as e:
-            result["error"] = f"LLM 调用失败: {e}"
+            result["error"] = f"LLM 璋冪敤澶辫触: {e}"
             return result
+
+        sql = self._apply_data_restrictions_sql(sql, getattr(self, "_data_restrictions", None))
 
         result["sql"] = sql
         result["matched_tables"] = [
@@ -454,14 +608,18 @@ class LLMNLPtoSQL:
         ]
 
         if sql.startswith("--"):
+            if "数据权限过滤无法生效" in sql:
+                result["error"] = sql
+                return result
             last = self._get_last_result()
             if last and self.memory:
                 try:
                     analysis = self.analyze_results(
                         user_input, last["sql"], last["columns"], last["rows"]
-                    )
+                    )   
                     result.update(sql=last["sql"], analysis=analysis, data={
                         "columns": last["columns"], "row_count": last["row_count"],
+                        "rows": self._serialize_rows(last["rows"]),
                     })
                     self._add_memory(
                         user_input, last["sql"], last["row_count"],
@@ -474,16 +632,20 @@ class LLMNLPtoSQL:
             result["error"] = sql
             return result
 
-        # ---- 执行（单次，不重试不修复） ----
+        # ---- 鎵ц锛堝崟娆★紝涓嶉噸璇曚笉淇锛?----
         columns, rows, err = self._execute(sql)
         result["attempts"] = 1
         if err:
             result["error"] = err
             return result
 
-        result["data"] = {"columns": columns, "row_count": len(rows)}
+        result["data"] = {
+            "columns": columns,
+            "rows": self._serialize_rows(rows),
+            "row_count": len(rows),
+        }
 
-        # ---- 分析 ----
+        # ---- 鍒嗘瀽 ----
         try:
             analysis = self.analyze_results(user_input, result["sql"], columns, rows)
         except Exception as e:
@@ -503,3 +665,4 @@ class LLMNLPtoSQL:
             intent="query",
         )
         return result
+

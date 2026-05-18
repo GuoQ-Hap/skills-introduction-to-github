@@ -1,256 +1,246 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useMemo, useState, type ReactNode } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Layout, Typography, Tag, Tooltip, Avatar, Dropdown, Badge } from 'antd';
 import {
-  ThunderboltOutlined,
-  EditOutlined,
-  BarChartOutlined,
-  AppstoreOutlined,
-  DatabaseOutlined,
-  LineChartOutlined,
-  MessageOutlined,
-  RightOutlined,
-  RobotOutlined,
-  CloudServerOutlined,
-  BulbOutlined,
-  HomeOutlined,
-  SettingOutlined,
-  UserOutlined,
-  LogoutOutlined,
-  TeamOutlined,
-  LockOutlined,
-  CommentOutlined,
   AimOutlined,
+  AlertOutlined,
+  ApartmentOutlined,
+  ApiOutlined,
+  AppstoreOutlined,
+  BankOutlined,
+  BarChartOutlined,
+  BulbOutlined,
+  CloudServerOutlined,
+  CommentOutlined,
+  DashboardOutlined,
+  DatabaseOutlined,
+  DownOutlined,
+  EditOutlined,
+  ExperimentOutlined,
+  FundOutlined,
+  HomeOutlined,
+  InboxOutlined,
+  LineChartOutlined,
+  LockOutlined,
+  LogoutOutlined,
+  MessageOutlined,
+  NodeIndexOutlined,
+  PartitionOutlined,
+  RobotOutlined,
+  SafetyCertificateOutlined,
+  SettingOutlined,
+  ShopOutlined,
+  TagOutlined,
+  TeamOutlined,
+  ThunderboltOutlined,
+  TruckOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useAuth, PERMISSION_COLORS } from '../context/AuthContext';
+import { APP_STAGE, APP_VERSION } from '../api';
 
-const { Sider, Content, Header } = Layout;
+const { Sider, Header, Content } = Layout;
 const { Text } = Typography;
 
-const LeangGeoSVG = ({ size = 40, color = '#F57C00', opacity = 0.12, style = {} }: {
-  size?: number; color?: string; opacity?: number; style?: React.CSSProperties;
-}) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" style={{ opacity, ...style }}>
-    <g transform="translate(50,50)">
-      {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
-        <polygon key={deg} points="0,-42 12,-14 0,-6 -12,-14" fill={color} transform={`rotate(${deg})`} />
-      ))}
-    </g>
-  </svg>
-);
-
-/* ══════════════════════════════════════
-   彩虹色配置：从上到下 红→橙→绿→蓝→紫
-   ══════════════════════════════════════ */
-
 export const RAINBOW = [
-  { from: '#FF6B6B', to: '#FF8A65' },   // 0 用户导航     — 红珊瑚
-  { from: '#FF9800', to: '#FFB74D' },   // 1 LEANG-AGENT — 橙琥珀
-  { from: '#4CAF50', to: '#26A69A' },   // 2 LEANG-DATA  — 绿翡翠
-  { from: '#42A5F5', to: '#5C6BC0' },   // 3 LEANG-RAG   — 蓝靛蓝
-  { from: '#AB47BC', to: '#7E57C2' },   // 4 系统管理     — 紫罗兰
+  { from: '#1D9BF0', to: '#00E5FF' },
+  { from: '#5B7CFA', to: '#21D4FD' },
+  { from: '#00C2A8', to: '#68F5D2' },
+  { from: '#8B5CF6', to: '#38BDF8' },
+  { from: '#F59E0B', to: '#22D3EE' },
 ];
 
 export const BTN_RAINBOW = RAINBOW.map(c => `linear-gradient(135deg, ${c.from}, ${c.to})`);
-export const BTN_RAINBOW_DARK = [
-  `linear-gradient(135deg, #E05555, #D4714F)`,
-  `linear-gradient(135deg, #E08600, #D4993A)`,
-  `linear-gradient(135deg, #3D9140, #1E8A7E)`,
-  `linear-gradient(135deg, #3189D4, #4A59A8)`,
-  `linear-gradient(135deg, #9235A6, #6845AB)`,
-];
+export const BTN_RAINBOW_DARK = RAINBOW.map(c => `linear-gradient(135deg, ${c.to}, ${c.from})`);
 
-export const PAGE_COLORS: Record<string, { from: string; to: string }> = {
-  '/': RAINBOW[0],
-  '/dashboard': RAINBOW[0],
-  '/listing-optimize': RAINBOW[1],
-  '/listing-optimize?tab=optimize': RAINBOW[1],
-  '/listing-optimize?tab=analyze': RAINBOW[1],
-  '/listing-optimize?tab=batch': RAINBOW[1],
-  '/data-query': RAINBOW[2],
-  '/data-analysis': RAINBOW[2],
-  '/rag-chat': RAINBOW[3],
-  '/system-status': RAINBOW[4],
-};
-
-function grad(idx: number) {
-  const c = RAINBOW[idx];
-  return `linear-gradient(135deg, ${c.from}, ${c.to})`;
+interface NavChild {
+  key: string;
+  label: string;
+  icon: ReactNode;
+  status?: 'ready' | 'planned';
 }
-function gradHover(idx: number) {
-  const c = RAINBOW[idx];
-  return `linear-gradient(135deg, ${c.to}, ${c.from})`;
-}
-
-function lerpColor(a: string, b: string, t: number) {
-  const parse = (hex: string) => [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
-  const [r1, g1, b1] = parse(a);
-  const [r2, g2, b2] = parse(b);
-  const r = Math.round(r1 + (r2 - r1) * t);
-  const g = Math.round(g1 + (g2 - g1) * t);
-  const bb = Math.round(b1 + (b2 - b1) * t);
-  return `#${[r, g, bb].map(v => v.toString(16).padStart(2, '0')).join('')}`;
-}
-
-interface NavChild { key: string; label: string; icon: React.ReactNode; }
 
 interface NavGroup {
   id: string;
   title: string;
-  icon: React.ReactNode;
+  subtitle: string;
+  icon: ReactNode;
   colorIdx: number;
-  children?: NavChild[];
-  directKey?: string;
+  minLevel: number;
+  children: NavChild[];
 }
 
-const ALL_NAV_GROUPS: (NavGroup & { minLevel: number })[] = [
+const NAV_GROUPS: NavGroup[] = [
   {
-    id: 'home', title: '用户导航', icon: <HomeOutlined />, colorIdx: 0,
-    directKey: '/', minLevel: 1,
-  },
-  {
-    id: 'agent', title: 'LEANG-AGENT', icon: <RobotOutlined />, colorIdx: 1, minLevel: 2,
+    id: 'cockpit',
+    title: '公司经营驾驶舱',
+    subtitle: '总览',
+    icon: <DashboardOutlined />,
+    colorIdx: 0,
+    minLevel: 1,
     children: [
-      { key: '/listing?tab=optimize', label: 'Listing 优化', icon: <EditOutlined /> },
-      { key: '/listing?tab=analyze', label: 'Listing 诊断', icon: <BarChartOutlined /> },
-      { key: '/listing?tab=batch', label: '批量优化', icon: <AppstoreOutlined /> },
-      { key: '/reviews', label: '评论分析', icon: <CommentOutlined /> },
-      { key: '/competitors', label: '竞品发现', icon: <AimOutlined /> },
+      { key: '/', label: '经营总览', icon: <HomeOutlined />, status: 'ready' },
+      { key: '/architecture', label: '工作中心', icon: <PartitionOutlined />, status: 'planned' },
     ],
   },
   {
-    id: 'data', title: 'LEANG-DATA', icon: <CloudServerOutlined />, colorIdx: 2, minLevel: 3,
+    id: 'operations',
+    title: '供应链管理',
+    subtitle: '库存 采购 物流',
+    icon: <TruckOutlined />,
+    colorIdx: 2,
+    minLevel: 2,
     children: [
-      { key: '/query', label: '数据查询', icon: <DatabaseOutlined /> },
-      { key: '/analysis', label: '数据分析', icon: <LineChartOutlined /> },
+      { key: '/inventory', label: '库存健康与预警', icon: <InboxOutlined />, status: 'planned' },
+      { key: '/supply-chain', label: '供应链履约监控', icon: <TruckOutlined />, status: 'planned' },
+      { key: '/procurement', label: '采购与供应商协同', icon: <ApartmentOutlined />, status: 'planned' },
+      { key: '/warehouse', label: '仓储物流看板', icon: <AlertOutlined />, status: 'planned' },
     ],
   },
   {
-    id: 'rag', title: 'LEANG-RAG', icon: <BulbOutlined />, colorIdx: 3, minLevel: 4,
+    id: 'ai-growth',
+    title: '运营增长',
+    subtitle: '选品 Listing 竞品',
+    icon: <RobotOutlined />,
+    colorIdx: 2,
+    minLevel: 2,
     children: [
-      { key: '/rag', label: '智能问答', icon: <MessageOutlined /> },
+      { key: '/listing?tab=optimize', label: 'Listing 优化中心', icon: <EditOutlined />, status: 'ready' },
+      { key: '/listing-records', label: 'Listing 优化记录', icon: <DatabaseOutlined />, status: 'ready' },
+      { key: '/listing?tab=analyze', label: 'Listing 诊断中心', icon: <BarChartOutlined />, status: 'ready' },
+      { key: '/listing?tab=batch', label: '批量运营优化', icon: <AppstoreOutlined />, status: 'ready' },
+      { key: '/reviews', label: '评论洞察分析', icon: <CommentOutlined />, status: 'ready' },
+      { key: '/competitors', label: '竞品情报中心', icon: <AimOutlined />, status: 'ready' },
+      { key: '/market-analysis', label: '市场分析', icon: <LineChartOutlined />, status: 'ready' },
+      { key: '/positioning', label: '产品定位分析', icon: <TagOutlined />, status: 'ready' },
+      { key: '/ads', label: '广告投放策略', icon: <ExperimentOutlined />, status: 'ready' },
     ],
   },
   {
-    id: 'system', title: '系统管理', icon: <SettingOutlined />, colorIdx: 4,
-    directKey: '/system', minLevel: 5,
+    id: 'finance-agent',
+    title: '财务管理',
+    subtitle: '利润 成本 回款',
+    icon: <BankOutlined />,
+    colorIdx: 4,
+    minLevel: 2,
+    children: [
+      { key: '/finance-agent/profit', label: '经营利润分析', icon: <FundOutlined />, status: 'planned' },
+      { key: '/finance-agent/cost', label: '成本核算中心', icon: <BarChartOutlined />, status: 'planned' },
+      { key: '/finance-agent/cashflow', label: '回款与现金流', icon: <LineChartOutlined />, status: 'planned' },
+    ],
   },
   {
-    id: 'users', title: '用户管理', icon: <TeamOutlined />, colorIdx: 4,
-    directKey: '/users', minLevel: 5,
+    id: 'product-agent',
+    title: '产品管理',
+    subtitle: '选品 开发 上新',
+    icon: <ShopOutlined />,
+    colorIdx: 1,
+    minLevel: 2,
+    children: [
+      { key: '/product-agent/selection', label: '市场选品研究', icon: <BulbOutlined />, status: 'planned' },
+      { key: '/product-agent/development', label: '产品开发管理', icon: <ShopOutlined />, status: 'planned' },
+      { key: '/product-agent/listing', label: '新品上架管理', icon: <ApiOutlined />, status: 'planned' },
+    ],
+  },
+  {
+    id: 'hr-agent',
+    title: '组织人事',
+    subtitle: '招聘 绩效 组织',
+    icon: <TeamOutlined />,
+    colorIdx: 3,
+    minLevel: 2,
+    children: [
+      { key: '/hr-agent/recruiting', label: '招聘与入职', icon: <UserOutlined />, status: 'planned' },
+      { key: '/hr-agent/performance', label: '绩效管理', icon: <ThunderboltOutlined />, status: 'planned' },
+      { key: '/hr-agent/org', label: '组织发展', icon: <ApartmentOutlined />, status: 'planned' },
+    ],
+  },
+  {
+    id: 'data-ai',
+    title: '数据与知识智能',
+    subtitle: 'BI RAG 工作流',
+    icon: <CloudServerOutlined />,
+    colorIdx: 3,
+    minLevel: 3,
+    children: [
+      { key: '/query', label: '自然语言查数', icon: <DatabaseOutlined />, status: 'ready' },
+      { key: '/analysis', label: '经营数据分析', icon: <LineChartOutlined />, status: 'ready' },
+      { key: '/rag', label: '企业知识库', icon: <MessageOutlined />, status: 'ready' },
+      { key: '/workflow', label: '自动化工作流', icon: <NodeIndexOutlined />, status: 'planned' },
+    ],
+  },
+  {
+    id: 'governance',
+    title: '系统治理',
+    subtitle: '权限 模型 安全',
+    icon: <SafetyCertificateOutlined />,
+    colorIdx: 4,
+    minLevel: 5,
+    children: [
+      { key: '/system', label: '系统状态', icon: <SettingOutlined />, status: 'ready' },
+      { key: '/users', label: '用户与权限', icon: <UserOutlined />, status: 'ready' },
+      { key: '/modelops', label: '模型与提示词治理', icon: <BulbOutlined />, status: 'planned' },
+    ],
   },
 ];
 
-const allFlatItems = ALL_NAV_GROUPS.flatMap(g =>
-  g.directKey ? [{ key: g.directKey, label: g.title }] : (g.children || []),
-);
+const flatItems = NAV_GROUPS.flatMap(group => group.children);
 
 function getActiveKey(pathname: string, search: string) {
-  if (pathname === '/') return '/';
-  if (pathname === '/system') return '/system';
-  if (pathname === '/users') return '/users';
   if (pathname === '/listing') {
     const tab = new URLSearchParams(search).get('tab') || 'optimize';
     return `/listing?tab=${tab}`;
   }
-  const full = pathname + search;
-  return allFlatItems.find(i => i.key === full)?.key
-    || allFlatItems.find(i => i.key.startsWith(pathname))?.key
-    || '';
+  return flatItems.find(item => item.key === pathname)?.key
+    || flatItems.find(item => item.key.startsWith(pathname))?.key
+    || pathname;
 }
 
-function getActiveGroupId(activeKey: string): string {
-  for (const g of ALL_NAV_GROUPS) {
-    if (g.directKey === activeKey) return g.id;
-    if (g.children?.some(c => c.key === activeKey)) return g.id;
-  }
-  return '';
-}
-
-function childColor(parentIdx: number, nextIdx: number, childI: number, childCount: number) {
-  const parentFrom = RAINBOW[parentIdx].from;
-  const nextFrom = RAINBOW[Math.min(nextIdx, RAINBOW.length - 1)].from;
-  const t = childCount <= 1 ? 0.3 : childI / (childCount - 1) * 0.6 + 0.15;
-  return lerpColor(parentFrom, nextFrom, t);
-}
-
-function ChildrenWrap({ open, children }: { open: boolean; children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number | undefined>(undefined);
-
-  useEffect(() => {
-    if (ref.current) setHeight(ref.current.scrollHeight);
-  });
-
-  return (
-    <div style={{
-      overflow: 'hidden',
-      maxHeight: open ? (height ?? 300) : 0,
-      opacity: open ? 1 : 0,
-      transition: 'max-height 0.28s cubic-bezier(.4,0,.2,1), opacity 0.22s ease, margin-top 0.28s ease',
-      marginTop: open ? 4 : 0,
-    }} ref={ref}>
-      {children}
-    </div>
-  );
+function platformPath(key: string) {
+  const [path, qs] = key.split('?');
+  return qs ? `${path}?${qs}` : path;
 }
 
 export default function MainLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, canAccess } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
-  const [animKey, setAnimKey] = useState(0);
-  const prevPath = useRef(location.pathname + location.search);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(
+    () => new Set(NAV_GROUPS.map(group => group.id)),
+  );
 
   const userPermLevel = user?.permission_level ?? 1;
-  const navGroups = ALL_NAV_GROUPS.filter(g => g.minLevel <= userPermLevel);
-
-  useEffect(() => {
-    const cur = location.pathname + location.search;
-    if (cur !== prevPath.current) {
-      prevPath.current = cur;
-      setAnimKey(k => k + 1);
-    }
-  }, [location.pathname, location.search]);
-
   const activeKey = getActiveKey(location.pathname, location.search);
-  const activeGroupId = getActiveGroupId(activeKey);
-  const activeGroup = navGroups.find(g => g.id === activeGroupId);
-  const activeColor = activeGroup ? RAINBOW[activeGroup.colorIdx] : RAINBOW[0];
-  const currentTitle = allFlatItems.find(i => i.key === activeKey)?.label || 'LEANG AI';
+  const activeItem = flatItems.find(item => item.key === activeKey);
 
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
-    const init: Record<string, boolean> = {};
-    ALL_NAV_GROUPS.forEach(g => { init[g.id] = true; });
-    return init;
-  });
+  const navGroups = useMemo(() => NAV_GROUPS.filter(group => {
+    if (group.id === 'cockpit') return true;
+    if (group.id === 'ai-growth') return canAccess('agent');
+    if (group.id === 'data-ai') return canAccess('data') || canAccess('rag');
+    if (group.id === 'governance') return canAccess('system') || canAccess('admin');
+    return userPermLevel >= group.minLevel;
+  }), [canAccess, userPermLevel]);
 
-  const toggleGroup = useCallback((id: string) => setOpenGroups(prev => ({ ...prev, [id]: !prev[id] })), []);
-
-  const handleNav = (key: string) => {
-    const [path, qs] = key.split('?');
-    navigate(qs ? `${path}?${qs}` : path);
+  const toggleGroup = (groupId: string) => {
+    setOpenGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
   };
 
   const userMenuItems = [
     {
       key: 'profile',
       label: (
-        <div style={{ padding: '4px 0' }}>
-          <div style={{ fontWeight: 600, marginBottom: 2 }}>{user?.display_name}</div>
-          <div style={{ fontSize: 11, color: '#999' }}>@{user?.username}</div>
-          <div style={{ marginTop: 6 }}>
-            <span style={{
-              display: 'inline-block', padding: '1px 8px',
-              borderRadius: 4, fontSize: 11, fontWeight: 600,
-              background: PERMISSION_COLORS[userPermLevel] + '20',
-              color: PERMISSION_COLORS[userPermLevel],
-              border: `1px solid ${PERMISSION_COLORS[userPermLevel]}40`,
-            }}>
-              Lv.{userPermLevel} {user?.permission_name}
-            </span>
-          </div>
+        <div style={{ minWidth: 180 }}>
+          <div style={{ fontWeight: 700, color: '#DFF7FF' }}>{user?.display_name}</div>
+          <div style={{ fontSize: 12, color: '#86A8BD', marginTop: 2 }}>@{user?.username}</div>
+          <Tag style={{ marginTop: 8, borderColor: '#1E6B8C', color: '#AEEBFF', background: '#092031' }}>
+            Lv.{userPermLevel} {user?.permission_name}
+          </Tag>
         </div>
       ),
       disabled: true,
@@ -266,167 +256,88 @@ export default function MainLayout() {
   ];
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout className="ai-shell">
       <Sider
-        collapsible collapsed={collapsed} onCollapse={setCollapsed}
-        width={220} collapsedWidth={64}
-        style={{
-          background: '#FAFAFA', borderRight: '1px solid #f0f0f0',
-          overflow: 'hidden', position: 'sticky', top: 0, height: '100vh',
-          display: 'flex', flexDirection: 'column',
-        }}
-        theme="light"
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        width={286}
+        collapsedWidth={78}
+        className="ai-sider"
+        trigger={null}
       >
-        <div style={{ position: 'absolute', bottom: 50, left: -10, pointerEvents: 'none' }}>
-          <LeangGeoSVG size={120} opacity={0.04} />
-        </div>
-
-        {/* Logo */}
-        <div style={{
-          height: collapsed ? 56 : 72, display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center', gap: 2,
-          borderBottom: '1px solid #f0f0f0', padding: '10px 12px',
-          flexShrink: 0, transition: 'height 0.2s',
-        }}>
-          <img src="/assets/logo.png" alt="LEANG"
-            style={{ height: collapsed ? 26 : 30, transition: 'height 0.2s', mixBlendMode: 'multiply' }} />
+        <div className="ai-brand" onClick={() => navigate('/')}>
+          <div className="ai-brand-mark">
+            <ThunderboltOutlined />
+          </div>
           {!collapsed && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              color: '#FF9800', fontSize: 9, fontWeight: 600, letterSpacing: 1,
-            }}>
-              <ThunderboltOutlined style={{ fontSize: 9 }} /> AI 赋能平台
+            <div>
+              <div className="ai-brand-title">LEANG AI一体化平台</div>
+              <div className="ai-brand-subtitle">Company Intelligence OS</div>
             </div>
           )}
         </div>
 
-        {/* Nav */}
-        <div style={{
-          flex: 1, overflowY: 'auto', overflowX: 'hidden',
-          padding: collapsed ? '10px 6px 60px' : '10px 10px 60px',
-        }}>
-          {navGroups.map((group, gi) => {
-            const isGroupActive = activeGroupId === group.id;
-            const isOpen = openGroups[group.id];
-            const hasChildren = !!group.children?.length;
-            const nextColorIdx = gi < navGroups.length - 1 ? navGroups[gi + 1].colorIdx : group.colorIdx;
-
-            const handleHeaderClick = () => {
-              if (group.directKey) handleNav(group.directKey);
-              else toggleGroup(group.id);
-            };
-
-            /* ── Group header card ── */
-            const headerCard = collapsed ? (
-              <Tooltip title={group.title} placement="right">
-                <div onClick={handleHeaderClick} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  height: 40, borderRadius: 10, cursor: 'pointer',
-                  background: grad(group.colorIdx),
-                  boxShadow: isGroupActive ? '0 3px 12px rgba(0,0,0,0.18)' : '0 1px 4px rgba(0,0,0,0.08)',
-                  transition: 'all 0.25s', marginBottom: 4,
-                }}>
-                  <span style={{ color: '#fff', fontSize: 17 }}>{group.icon}</span>
-                </div>
-              </Tooltip>
-            ) : (
-              <div
-                onClick={handleHeaderClick}
+        <div className="ai-nav">
+          {navGroups.map(group => {
+            const activeInGroup = group.children.some(item => item.key === activeKey);
+            const tone = RAINBOW[group.colorIdx];
+            const isOpen = !collapsed && (openGroups.has(group.id) || activeInGroup);
+            const groupButton = (
+              <button
+                type="button"
+                className={`ai-nav-group-title ${activeInGroup ? 'is-active' : ''} ${isOpen ? 'is-open' : ''}`}
                 style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 14px', borderRadius: 12, cursor: 'pointer',
-                  background: grad(group.colorIdx),
-                  boxShadow: isGroupActive ? '0 4px 14px rgba(0,0,0,0.18)' : '0 2px 6px rgba(0,0,0,0.08)',
-                  transition: 'all 0.25s', userSelect: 'none',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLDivElement).style.background = gradHover(group.colorIdx);
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 18px rgba(0,0,0,0.22)';
-                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLDivElement).style.background = grad(group.colorIdx);
-                  (e.currentTarget as HTMLDivElement).style.boxShadow = isGroupActive
-                    ? '0 4px 14px rgba(0,0,0,0.18)' : '0 2px 6px rgba(0,0,0,0.08)';
-                  (e.currentTarget as HTMLDivElement).style.transform = 'none';
-                }}
+                  '--nav-from': tone.from,
+                  '--nav-to': tone.to,
+                } as React.CSSProperties}
+                onClick={() => collapsed ? setCollapsed(false) : toggleGroup(group.id)}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: '#fff', fontSize: 15, display: 'flex', alignItems: 'center' }}>
-                    {group.icon}
-                  </span>
-                  <span style={{ color: '#fff', fontSize: 12, fontWeight: 700, letterSpacing: 1.5 }}>
-                    {group.title}
-                  </span>
-                </div>
-                {hasChildren && (
-                  <RightOutlined style={{
-                    color: 'rgba(255,255,255,0.7)', fontSize: 10,
-                    transition: 'transform 0.25s',
-                    transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-                  }} />
+                <span className="ai-nav-group-icon" style={{ color: tone.to }}>{group.icon}</span>
+                {!collapsed && (
+                  <>
+                    <span className="ai-nav-group-copy">
+                      <strong>{group.title}</strong>
+                      <em>{group.subtitle}</em>
+                    </span>
+                    <DownOutlined className="ai-nav-group-arrow" />
+                  </>
                 )}
-              </div>
+              </button>
             );
-
             return (
-              <div key={group.id} style={{ marginBottom: 8 }}>
-                {headerCard}
-
-                {/* ── Children with interpolated rainbow colors ── */}
-                {hasChildren && (
-                  <ChildrenWrap open={!collapsed && isOpen}>
-                    {group.children!.map((child, ci) => {
-                      const isActive = activeKey === child.key;
-                      const color = childColor(group.colorIdx, nextColorIdx, ci, group.children!.length);
-
-                      const item = (
-                        <div
-                          key={child.key}
-                          onClick={() => handleNav(child.key)}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 8,
-                            padding: collapsed ? '8px 0' : '8px 12px 8px 20px',
-                            marginBottom: 2, borderRadius: 8, cursor: 'pointer',
-                            justifyContent: collapsed ? 'center' : 'flex-start',
-                            background: isActive ? `${color}18` : 'transparent',
-                            borderLeft: isActive ? `3px solid ${color}` : '3px solid transparent',
-                            transition: 'all 0.15s', position: 'relative',
-                          }}
-                          onMouseEnter={e => {
-                            if (!isActive) {
-                              (e.currentTarget as HTMLDivElement).style.background = `${color}0D`;
-                              (e.currentTarget as HTMLDivElement).style.borderLeft = `3px solid ${color}60`;
-                            }
-                          }}
-                          onMouseLeave={e => {
-                            if (!isActive) {
-                              (e.currentTarget as HTMLDivElement).style.background = 'transparent';
-                              (e.currentTarget as HTMLDivElement).style.borderLeft = '3px solid transparent';
-                            }
-                          }}
-                        >
-                          <span style={{
-                            fontSize: collapsed ? 16 : 14, display: 'flex', alignItems: 'center',
-                            color: isActive ? color : '#999', transition: 'color 0.15s',
-                          }}>
-                            {child.icon}
-                          </span>
-                          {!collapsed && (
-                            <span style={{
-                              fontSize: 13, fontWeight: isActive ? 600 : 400,
-                              color: isActive ? color : '#666', transition: 'color 0.15s',
-                            }}>
-                              {child.label}
-                            </span>
-                          )}
-                        </div>
-                      );
-                      return collapsed ? (
-                        <Tooltip key={child.key} title={child.label} placement="right">{item}</Tooltip>
-                      ) : <div key={child.key}>{item}</div>;
-                    })}
-                  </ChildrenWrap>
+              <div className="ai-nav-group" key={group.id}>
+                {collapsed ? (
+                  <Tooltip title={group.title} placement="right">{groupButton}</Tooltip>
+                ) : groupButton}
+                {isOpen && (
+                  <div className="ai-nav-sublist">
+                    {group.children.map(item => {
+                    const isActive = item.key === activeKey;
+                    const navItem = (
+                      <button
+                        type="button"
+                        className={`ai-nav-item ${isActive ? 'is-active' : ''}`}
+                        style={{
+                          '--nav-from': tone.from,
+                          '--nav-to': tone.to,
+                        } as React.CSSProperties}
+                        onClick={() => navigate(platformPath(item.key))}
+                      >
+                        <span className="ai-nav-icon">{item.icon}</span>
+                        {!collapsed && (
+                          <>
+                            <span className="ai-nav-label">{item.label}</span>
+                            {item.status === 'planned' && <span className="ai-nav-chip">预设</span>}
+                          </>
+                        )}
+                      </button>
+                    );
+                    return collapsed ? (
+                      <Tooltip key={item.key} title={item.label} placement="right">{navItem}</Tooltip>
+                    ) : <div key={item.key}>{navItem}</div>;
+                  })}
+                  </div>
                 )}
               </div>
             );
@@ -434,67 +345,38 @@ export default function MainLayout() {
         </div>
       </Sider>
 
-      <Layout>
-        <Header style={{
-          background: `linear-gradient(135deg, ${activeColor.from}18, ${activeColor.to}10), #ffffff`,
-          padding: '0 32px',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          boxShadow: `0 1px 4px ${activeColor.from}20`,
-          position: 'sticky', top: 0, zIndex: 100,
-          borderBottom: `2px solid ${activeColor.from}30`,
-          transition: 'all 0.3s ease',
-        }}>
-          <Text strong style={{ fontSize: 18, color: activeColor.from }}>{currentTitle}</Text>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <Tag style={{
-              background: `linear-gradient(135deg, ${activeColor.from}20, ${activeColor.to}15)`,
-              border: `1px solid ${activeColor.from}40`, color: activeColor.from,
-              borderRadius: 16, padding: '2px 12px', fontSize: 12, fontWeight: 600,
-            }}>
-              <ThunderboltOutlined /> AI Powered
-            </Tag>
-            <div style={{ width: 1, height: 20, background: '#eee' }} />
-            <div style={{
-              background: `linear-gradient(135deg, ${activeColor.from}18, ${activeColor.to}10)`,
-              borderRadius: 6, padding: '2px 6px', display: 'flex', alignItems: 'center',
-            }}>
-              <img src="/assets/logo.png" alt="LEANG" style={{ height: 22, mixBlendMode: 'multiply' }} />
-            </div>
-            <div style={{ width: 1, height: 20, background: '#eee' }} />
+      <Layout className="ai-main">
+        <Header className="ai-header">
+          <div>
+            <Text className="ai-current-title">{activeItem?.label || '经营总览'}</Text>
+            <div className="ai-current-subtitle">LEANG 公司级 AI 运营控制台</div>
+          </div>
+          <div className="ai-header-actions">
+            <Tag className="ai-version">{APP_VERSION} {APP_STAGE}</Tag>
+            <Tag className="ai-powered"><ThunderboltOutlined /> AI Powered</Tag>
+            <button type="button" className="ai-collapse" onClick={() => setCollapsed(v => !v)}>
+              {collapsed ? '展开' : '收起'}
+            </button>
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-              <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Badge
-                  dot
-                  color={PERMISSION_COLORS[userPermLevel]}
-                  offset={[-2, 30]}
-                >
+              <div className="ai-user">
+                <Badge dot color={PERMISSION_COLORS[userPermLevel]} offset={[-4, 28]}>
                   <Avatar
-                    size={32}
-                    style={{
-                      background: `linear-gradient(135deg, ${PERMISSION_COLORS[userPermLevel]}, ${PERMISSION_COLORS[userPermLevel]}aa)`,
-                      fontSize: 13, fontWeight: 700,
-                    }}
+                    size={34}
+                    style={{ background: `linear-gradient(135deg, ${PERMISSION_COLORS[userPermLevel]}, #16B8FF)` }}
                     icon={userPermLevel === 5 ? <LockOutlined /> : <UserOutlined />}
                   >
                     {user?.display_name?.[0]?.toUpperCase()}
                   </Avatar>
                 </Badge>
-                {!collapsed && (
-                  <div style={{ lineHeight: 1.2 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#333' }}>
-                      {user?.display_name}
-                    </div>
-                    <div style={{ fontSize: 10, color: PERMISSION_COLORS[userPermLevel] }}>
-                      Lv.{userPermLevel} {user?.permission_name}
-                    </div>
-                  </div>
-                )}
+                <span>{user?.display_name}</span>
               </div>
             </Dropdown>
           </div>
         </Header>
-        <Content style={{ margin: 24, minHeight: 'calc(100vh - 64px - 48px)' }}>
-          <div key={animKey} className="page-transition">
+
+        <Content className="ai-content">
+          <div className="ai-content-grid" />
+          <div className="page-transition">
             <Outlet />
           </div>
         </Content>

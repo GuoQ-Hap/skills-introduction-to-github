@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Card,
   Tabs,
@@ -33,7 +33,7 @@ import {
   SettingOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import { stiApi, listingApi, type SQLExecResponse } from '../api';
+import { stiApi, listingApi, hasLocalDataRestrictions, type SQLExecResponse } from '../api';
 import { RAINBOW, BTN_RAINBOW } from '../layouts/MainLayout';
 
 const { Text } = Typography;
@@ -389,13 +389,15 @@ export async function fetchTriDimDiagnosticSql(opts: {
   thresholds?: ThresholdConfig;
   row_filter?: boolean;
   include_count_sql?: boolean;
+  salesApartment?: string;
 }) {
   const t = opts.thresholds;
-  const ps = opts.pageSize ?? (opts.asin ? 50 : 100);
+  const localRestricted = hasLocalDataRestrictions();
+  const ps = localRestricted && !opts.asin ? 5000 : (opts.pageSize ?? (opts.asin ? 50 : 100));
   const { data } = await listingApi.triDimDiagnosticSql({
     date_range: opts.dateRange,
     asin: opts.asin,
-    page: opts.page ?? 1,
+    page: localRestricted && !opts.asin ? 1 : (opts.page ?? 1),
     page_size: ps,
     dims: opts.dims,
     row_filter: opts.row_filter ?? true,
@@ -403,6 +405,7 @@ export async function fetchTriDimDiagnosticSql(opts: {
     thresholds: t
       ? { diag_ctr_abs: t.diagCtrAbs, diag_cvr_abs: t.diagCvrAbs, diag_sess_dec: t.diagSessDec }
       : undefined,
+    sales_apartment: opts.salesApartment || undefined,
   });
   return { dataSql: data.data_sql, countSql: data.count_sql ?? undefined };
 }
@@ -430,9 +433,11 @@ function useQueryRunner(cacheKey: string) {
       else {
         setResult(data);
         try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch {}
+        return data;
       }
     } catch (e: any) { setError(e.message || '查询失败'); }
     finally { setLoading(false); }
+    return null;
   };
 
   return { loading, result, error, executedSql, run };
@@ -689,31 +694,52 @@ const DIAG_DIM_OPTS: { value: DiagDim; label: string }[] = [
 function DiagnosticReport({ cfg }: { cfg: ThresholdConfig }) {
   const [dateRange, setDateRange] = useState(30);
   const [dims, setDims] = useState<DiagDim[]>(['ctr', 'cvr', 'sessions']);
+  const [salesApartment, setSalesApartment] = useState<string>('');
+  const [saOptions, setSaOptions] = useState<{ label: string; value: string }[]>([]);
+  const [saLoading, setSaLoading] = useState(false);
   const q = useQueryRunner('da_diagnostic');
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [countLoading, setCountLoading] = useState(false);
 
-  const runDiagnostic = async (page = 1, ps = pageSize, d = dims, dr = dateRange) => {
+  // 加载销售部门选项
+  useEffect(() => {
+    setSaLoading(true);
+    stiApi.execSql(
+      "SELECT DISTINCT sales_apartment FROM dim_lingxing_product_info WHERE sales_apartment IS NOT NULL AND sales_apartment != '' ORDER BY sales_apartment"
+    ).then(res => {
+      const opts = (res.data.rows || []).map((r: any) => ({
+        label: String(r.sales_apartment),
+        value: String(r.sales_apartment),
+      }));
+      setSaOptions(opts);
+    }).catch(() => {}).finally(() => setSaLoading(false));
+  }, []);
+
+  const runDiagnostic = async (page = 1, ps = pageSize, d = dims, dr = dateRange, sa = salesApartment) => {
     setCurrentPage(page);
     setCountLoading(true);
     try {
+      const localRestricted = hasLocalDataRestrictions();
       const { dataSql, countSql } = await fetchTriDimDiagnosticSql({
         dateRange: dr,
         dims: d,
-        page,
-        pageSize: ps,
+        page: localRestricted ? 1 : page,
+        pageSize: localRestricted ? 5000 : ps,
         thresholds: cfg,
         row_filter: true,
-        include_count_sql: page === 1,
+        include_count_sql: page === 1 && !localRestricted,
+        salesApartment: sa,
       });
-      const [countRes] = await Promise.all([
-        page === 1 && countSql ? stiApi.execSql(countSql) : Promise.resolve(null),
+      const [countRes, dataRes] = await Promise.all([
+        page === 1 && countSql && !localRestricted ? stiApi.execSql(countSql) : Promise.resolve(null),
         q.run(dataSql),
       ]);
       if (countRes?.data?.rows?.[0]?.total != null) {
         setTotal(Number(countRes.data.rows[0].total));
+      } else if (localRestricted) {
+        setTotal(dataRes?.row_count ?? 0);
       }
     } catch { /* handled by q.run */ }
     setCountLoading(false);
@@ -769,6 +795,7 @@ function DiagnosticReport({ cfg }: { cfg: ThresholdConfig }) {
       ) : <CheckCircleOutlined style={{ color: '#10B981' }} /> },
     { title: '运营', dataIndex: 'salesman', key: 'sales', width: 80, ellipsis: true },
     { title: '产品经理', dataIndex: 'product_manager', key: 'pm', width: 80, ellipsis: true },
+    { title: '销售部门', dataIndex: 'sales_apartment', key: 'sa', width: 100, ellipsis: true },
   ], []);
 
   const summary = useMemo(() => {
@@ -804,6 +831,33 @@ function DiagnosticReport({ cfg }: { cfg: ThresholdConfig }) {
               { value: 14, label: '近 14 天' }, { value: 30, label: '近 30 天' },
               { value: 60, label: '近 60 天' },
             ]} />
+          <Text strong style={{ marginLeft: 8 }}>销售部门：</Text>
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="全部部门（可输入关键字即时筛选）"
+            loading={saLoading}
+            value={salesApartment || undefined}
+            onChange={v => {
+              const next = v ?? '';
+              setSalesApartment(next);
+              // 选择部门后立即重新查询，无需再点“全维度诊断”。
+              if (dims.length > 0) {
+                runDiagnostic(1, pageSize, dims, dateRange, next);
+              }
+            }}
+            style={{ minWidth: 200, width: 220 }}
+            options={saOptions}
+            filterOption={(input, opt) => {
+              const q = input.trim().toLowerCase();
+              if (!q) return true;
+              const label = typeof opt?.label === 'string' ? opt.label : String(opt?.value ?? '');
+              return label.toLowerCase().includes(q);
+            }}
+            popupMatchSelectWidth={280}
+            listHeight={320}
+          />
           <Text strong style={{ marginLeft: 8 }}>诊断维度：</Text>
           <Checkbox.Group value={dims} onChange={v => setDims(v as DiagDim[])}
             options={DIAG_DIM_OPTS} />
@@ -812,13 +866,13 @@ function DiagnosticReport({ cfg }: { cfg: ThresholdConfig }) {
           <Space wrap>
             <Button type="primary" icon={<ThunderboltOutlined />} loading={q.loading || countLoading}
               disabled={dims.length === 0}
-              onClick={() => runDiagnostic(1, pageSize, dims, dateRange)}
+              onClick={() => runDiagnostic(1, pageSize, dims, dateRange, salesApartment)}
               style={{ background: dims.length ? R[0] : undefined }}>
               {dims.length === 3 ? '全维度诊断' : dims.length ? `${dims.length}维诊断` : '请选择维度'}
             </Button>
             {DIAG_DIM_OPTS.map(d => (
               <Button key={d.value} size="small"
-                onClick={() => { setDims([d.value]); runDiagnostic(1, pageSize, [d.value], dateRange); }}
+                onClick={() => { setDims([d.value]); runDiagnostic(1, pageSize, [d.value], dateRange, salesApartment); }}
                 loading={q.loading || countLoading}
                 style={{
                   borderColor: d.value === 'ctr' ? RAINBOW[1].from : d.value === 'cvr' ? RAINBOW[3].from : RAINBOW[4].from,
@@ -834,6 +888,7 @@ function DiagnosticReport({ cfg }: { cfg: ThresholdConfig }) {
               </Button>
             )}
             {total > 0 && <Tag color="red">{total} 个需优化产品</Tag>}
+            {salesApartment && <Tag color="blue">部门：{salesApartment}</Tag>}
           </Space>
         </div>
       </Card>
@@ -901,8 +956,8 @@ function DiagnosticReport({ cfg }: { cfg: ThresholdConfig }) {
                 showTotal: (t, range) => `第 ${range[0]}-${range[1]} 条 / 共 ${t} 条`,
                 showQuickJumper: true,
                 onChange: (page, ps) => {
-                  if (ps !== pageSize) { setPageSize(ps); runDiagnostic(1, ps, dims, dateRange); }
-                  else { runDiagnostic(page, ps, dims, dateRange); }
+                  if (ps !== pageSize) { setPageSize(ps); runDiagnostic(1, ps, dims, dateRange, salesApartment); }
+                  else { runDiagnostic(page, ps, dims, dateRange, salesApartment); }
                 },
               }}
               loading={q.loading}

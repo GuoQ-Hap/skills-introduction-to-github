@@ -980,14 +980,19 @@ class ListingOptimizer:
     # 原因：前端不再提供"3 条备选"入口，且该流程会额外占用 LLM 调用额度。
 
     def _build_competitor_section(self, competitor_products: Optional[List[ProductData]]) -> str:
-        """构建竞品区段文本（供各 prompt 复用）。"""
+        """构建竞品区段文本（供各 prompt 复用）。
+
+        约束：最多取前 5 条，按 A/B/C/D/E 编号，便于 prompt/思考链中精确引用。
+        """
         if not competitor_products:
             return ""
+        labels = ["A", "B", "C", "D", "E"]
+        capped = list(competitor_products)[:5]
         parts: list[str] = []
-        for i, cp in enumerate(competitor_products, 1):
+        for label, cp in zip(labels, capped):
             bp = "\n".join(f"  - {b}" for b in cp.bullet_points) if cp.bullet_points else "  （无）"
             parts.append(
-                f"### 竞品 {i}（{cp.asin}）\n"
+                f"### 竞品 {label}（{cp.asin}）\n"
                 f"- **标题**: {cp.title or '（无）'}\n"
                 f"- **品牌**: {cp.brand or '（未知）'}\n"
                 f"- **价格**: {cp.price or 'N/A'} {cp.currency or ''}\n"
@@ -998,8 +1003,14 @@ class ListingOptimizer:
                 f"- **描述**: {cp.description or '（无）'}"
             )
         return (
-            "\n## 竞品 Listing 参考\n"
-            "请分析以下竞品的优劣势，在优化时取长补短、差异化竞争。\n\n"
+            "\n## 竞品 Listing 参考（最多 5 条，按 A/B/C/D/E 标记，已通过用户勾选）\n"
+            "**目标**：从竞品 A~E 中提炼可学习的优秀写法（FAB 结构、关键场景、卖点表达、关键词覆盖、"
+            "信任体系等），并改良本品 Listing；同时**避免与任意一条竞品过度同质化**，保留本品差异点。\n"
+            "**要求**：\n"
+            "1. 至少明确指出本次优化吸收了哪 1~2 条竞品的什么写法（在 optimization_notes 里用"
+            "`[借鉴竞品X]` 标记）；\n"
+            "2. 不得照搬竞品的整句文案、品牌词、违禁承诺；\n"
+            "3. 不得抄袭竞品的款式名/型号名/虚标卖点。\n\n"
             + "\n\n".join(parts) + "\n"
         )
 
@@ -1448,6 +1459,64 @@ class ListingOptimizer:
 
         return candidate
 
+    # 已知 JSON 顶级字段，在抢救时用作 bullet 区间的边界 + 过滤误识别的字段名
+    _KNOWN_TOP_FIELDS: tuple[str, ...] = (
+        "title", "bullet_points", "description", "search_terms",
+        "optimization_notes", "pain_point_coverage", "alternatives", "primary",
+    )
+
+    @staticmethod
+    def _slice_bullet_segment(text: str) -> Optional[str]:
+        """定位 bullet_points 数组的起止位置，返回数组内部的原始文本片段。
+
+        处理两类截断/破损：
+        1. 数组 `]` 缺失：用括号深度扫描找最近的可信结束位置；
+        2. 数组未闭合就出现下一个顶级字段（如 LLM 把 description 塞进 bullets）：
+           用下一个顶级字段的位置作为硬边界，避免越界把后续字段名/值当成 bullet。
+        """
+        m = re.search(r'"bullet_points"\s*:\s*\[', text)
+        if not m:
+            return None
+        arr_start = m.end()
+
+        next_field_pat = "|".join(
+            re.escape(f) for f in ListingOptimizer._KNOWN_TOP_FIELDS
+            if f != "bullet_points"
+        )
+        nf = re.search(rf'"\s*(?:{next_field_pat})\s*"\s*:', text[arr_start:])
+        next_field_pos = arr_start + nf.start() if nf else len(text)
+
+        depth = 1
+        in_string = False
+        escape = False
+        bracket_end = -1
+        for i in range(arr_start, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch in "[{":
+                depth += 1
+            elif ch in "]}":
+                depth -= 1
+                if depth == 0:
+                    bracket_end = i
+                    break
+
+        if bracket_end != -1 and bracket_end <= next_field_pos:
+            end_pos = bracket_end
+        else:
+            end_pos = next_field_pos
+        return text[arr_start:end_pos]
+
     @staticmethod
     def _recover_partial_listing(raw: str) -> Optional[OptimizedListing]:
         """当完整 JSON 无法解析时，尽可能从半截 JSON 中抢救字段。"""
@@ -1458,7 +1527,6 @@ class ListingOptimizer:
         title_match = re.search(r'"title"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL)
         search_terms_match = re.search(r'"search_terms"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL)
         notes_match = re.search(r'"optimization_notes"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL)
-        bullets_match = re.search(r'"bullet_points"\s*:\s*\[(.*?)(?:\]\s*,|\]\s*\}|$)', text, re.DOTALL)
         desc_match = re.search(r'"description"\s*:\s*"((?:[^"\\]|\\.)*)', text, re.DOTALL)
 
         def _unescape(value: str) -> str:
@@ -1473,11 +1541,18 @@ class ListingOptimizer:
         description = _unescape(desc_match.group(1)) if desc_match else ""
 
         bullet_points: list[str] = []
-        if bullets_match:
-            bullet_points = [
-                _unescape(m.group(1))
-                for m in re.finditer(r'"((?:[^"\\]|\\.)*)"', bullets_match.group(1), re.DOTALL)
-            ]
+        bullet_segment = ListingOptimizer._slice_bullet_segment(text)
+        if bullet_segment is not None:
+            for m in re.finditer(r'"((?:[^"\\]|\\.)*)"', bullet_segment, re.DOTALL):
+                s = _unescape(m.group(1)).strip()
+                if not s:
+                    continue
+                # 过滤掉误捕获的字段名（如 "description" / "search_terms"）
+                if s in ListingOptimizer._KNOWN_TOP_FIELDS:
+                    continue
+                bullet_points.append(s)
+                if len(bullet_points) >= 5:
+                    break
 
         if any([title, bullet_points, description, search_terms, optimization_notes]):
             return OptimizedListing(
@@ -1499,18 +1574,33 @@ class ListingOptimizer:
 
         data = ListingOptimizer._extract_json(cleaned)
         if data and isinstance(data, dict):
-            bullet_points: list[str] = data.get("bullet_points", []) or []
+            raw_bullets = data.get("bullet_points", []) or []
 
             # 向后兼容：若旧版 LLM 输出仍是 bullet_points_with_alternatives 结构，
             # 仅提取 primary 填入 bullet_points，不再保留备选。
-            if not bullet_points:
+            if not raw_bullets:
                 bwa_raw = data.get("bullet_points_with_alternatives", [])
                 if isinstance(bwa_raw, list):
-                    bullet_points = [
+                    raw_bullets = [
                         item.get("primary", "")
                         for item in bwa_raw
                         if isinstance(item, dict) and item.get("primary")
                     ]
+
+            # 过滤掉非字符串 / 空字符串 / 误识别为字段名的项（兜底 LLM 不规范输出）
+            bullet_points: list[str] = []
+            for item in raw_bullets:
+                if not isinstance(item, str):
+                    continue
+                s = item.strip()
+                if not s:
+                    continue
+                if s in ListingOptimizer._KNOWN_TOP_FIELDS:
+                    continue
+                bullet_points.append(s)
+
+            # Prompt 要求恰好 5 条；若 LLM 仍超出（原始产品 bullet 较多时可能发生），截断到 5
+            bullet_points = bullet_points[:5]
 
             return OptimizedListing(
                 title=data.get("title", ""),

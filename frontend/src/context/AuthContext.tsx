@@ -8,6 +8,8 @@ export interface UserInfo {
   permission_level: number;
   permission_name: string;
   enabled: boolean;
+  custom_permissions?: string[] | null;
+  data_restrictions?: Record<string, string[]> | null;
 }
 
 /**
@@ -41,6 +43,7 @@ interface AuthContextType {
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   hasPermission: (minLevel: number) => boolean;
   canAccess: (feature: 'agent' | 'data' | 'rag' | 'system' | 'admin') => boolean;
 }
@@ -106,11 +109,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(userInfo);
   };
 
+  const refreshUser = useCallback(async () => {
+    const t = localStorage.getItem(TOKEN_KEY);
+    if (!t) return;
+    const res = await api.get('/auth/me', { headers: { Authorization: `Bearer ${t}` } });
+    setUser(res.data);
+    localStorage.setItem(USER_INFO_KEY, JSON.stringify(res.data));
+  }, []);
+
   const hasPermission = useCallback((minLevel: number) => {
     return (user?.permission_level ?? 0) >= minLevel;
   }, [user]);
 
   const canAccess = useCallback((feature: 'agent' | 'data' | 'rag' | 'system' | 'admin') => {
+    if (user?.custom_permissions != null) {
+      return user.custom_permissions.includes(feature);
+    }
     const level = user?.permission_level ?? 0;
     switch (feature) {
       case 'agent': return level >= 2;
@@ -123,7 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, logout, hasPermission, canAccess }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, refreshUser, hasPermission, canAccess }}>
       {children}
     </AuthContext.Provider>
   );

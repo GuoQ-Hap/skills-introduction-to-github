@@ -718,7 +718,7 @@ EVALUATE_LISTING_PROMPT = """\
 
 请严格按照以下四个维度逐一评判，每个维度 25 分。
 
----
+--- 
 
 ### 维度一：COSMO 关系覆盖（25 分）
 
@@ -1134,8 +1134,8 @@ def build_enhanced_optimize_prompt(
     核心差异：
     1. 代码级组装（非简单模板 format）
     2. 融合评论分析的卖点/痛点到提示词
-    3. 要求 LLM 对每条 Bullet 生成 3 条备选（主选 + 2 备选）
-    4. 每条 Bullet 严格遵循 FAB 结构并输出拆解
+    3. 每条 Bullet 严格遵循 FAB 结构
+    4. 每条 Bullet 只产出 1 条最终文案（不生成备选方案）
     """
     cfg = {**PROMPT_DEFAULTS, **(overrides or {})}
 
@@ -1161,7 +1161,7 @@ def build_enhanced_optimize_prompt(
 - 四维算法（COSMO/关键词/Rufus/IDQ）每个维度都达到高分
 - 每条五点描述严格遵循 FAB 结构
 - 充分利用评论中的卖点和痛点
-- 对每条五点描述提供 **1 条主选 + 2 条备选**，共 3 个方案""")
+- **五点描述恰好输出 5 条**，每条只产出 1 条最终文案，不生成备选方案""")
 
     # ── 2. 原始产品数据 ──
     sections.append(f"""\
@@ -1249,7 +1249,7 @@ def build_enhanced_optimize_prompt(
 5. **合规性** — 禁止 "Best Seller"/"Free Shipping"/全大写/竞品品牌名
 6. **四板块协同** — 标题聚焦 → 要点展开 → 描述讲故事 → 搜索词补遗漏""")
 
-    # ── 7. FAB + 备选方案要求 ──
+    # ── 7. FAB + 方案要求 ──
     sections.append("""\
 ## ══════════════════════════════════════════
 ## 五点描述 FAB 结构要求
@@ -1261,7 +1261,7 @@ def build_enhanced_optimize_prompt(
 - **Benefit（利益）**：消费者获得的实际价值/情感满足（对我有什么用）
 
 **写作要求**：
-- 每条只产出 **1 条**最终文案（综合最优，平衡 SEO + 转化，不需要备选）
+- **严格只输出 5 条**，每条为最终定稿文案（综合最优，平衡 SEO + 转化），不生成备选方案
 - 每条开头以 **大写加粗关键词短语** 开头（如 "PREMIUM MATERIAL"）
 - 每条 150-250 字符
 
@@ -1283,6 +1283,8 @@ def build_enhanced_optimize_prompt(
 
 请严格按以下 JSON 格式输出，不要添加其他文字或 markdown 代码块标记：
 
-{"title": "优化后的标题", "bullet_points": ["第1条（FAB结构，大写关键词开头）", "第2条（FAB结构）", "第3条（FAB结构）", "第4条（FAB结构）", "第5条（FAB结构）"], "description": "优化后的产品描述", "search_terms": "后台搜索关键词（空格分隔）", "optimization_notes": "优化说明", "pain_point_coverage": {"痛点标题": "回应该痛点的Bullet编号和方式"}}""")
+{"title": "优化后的标题", "bullet_points": ["第1条（FAB结构，大写关键词开头，仅此1条，不含备选）", "第2条（FAB结构，仅此1条，不含备选）", "第3条（FAB结构，仅此1条，不含备选）", "第4条（FAB结构，仅此1条，不含备选）", "第5条（FAB结构，仅此1条，不含备选）"], "description": "优化后的产品描述", "search_terms": "后台搜索关键词（空格分隔）", "optimization_notes": "优化说明", "pain_point_coverage": {"痛点标题": "回应该痛点的Bullet编号和方式"}}
+
+⚠ 重要：bullet_points 数组必须恰好包含 5 个元素，每个元素是一条完整的五点描述定稿文案，不得输出备选方案、不得超出 5 条。""")
 
     return "\n\n".join(sections)

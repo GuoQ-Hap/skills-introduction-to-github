@@ -11,6 +11,10 @@ class STIChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="用户自然语言查询")
     user_id: Optional[str] = Field(None, description="可选用户标识，写入 llm_memory")
     model: Optional[str] = Field(None, description="指定模型 provider:model，空则使用主模型")
+    data_restrictions: Optional[Dict[str, List[str]]] = Field(
+        None,
+        description="字段级查询限制，key 为字段名（如 store_name），value 为允许的值列表",
+    )
 
 
 class STIChatResponse(BaseModel):

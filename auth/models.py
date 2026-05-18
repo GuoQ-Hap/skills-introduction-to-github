@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from enum import IntEnum
-from typing import Optional
+from typing import Optional, List, Dict
 
 
 class PermissionLevel(IntEnum):
@@ -19,6 +19,15 @@ PERMISSION_NAMES = {
     5: "超级管理员",
 }
 
+# 各预设等级对应的功能列表（用于前端自动填充）
+LEVEL_PERMISSIONS: dict[int, List[str]] = {
+    1: [],
+    2: ["agent"],
+    3: ["agent", "data"],
+    4: ["agent", "data", "rag"],
+    5: ["agent", "data", "rag", "system", "admin"],
+}
+
 
 class UserRecord(BaseModel):
     username: str
@@ -26,6 +35,8 @@ class UserRecord(BaseModel):
     permission_level: int
     display_name: str
     enabled: bool = True
+    custom_permissions: Optional[List[str]] = None
+    data_restrictions: Optional[Dict[str, List[str]]] = None
 
 
 class LoginRequest(BaseModel):
@@ -39,6 +50,8 @@ class LoginResponse(BaseModel):
     display_name: str
     permission_level: int
     permission_name: str
+    custom_permissions: Optional[List[str]] = None
+    data_restrictions: Optional[Dict[str, List[str]]] = None
 
 
 class UserInfo(BaseModel):
@@ -47,6 +60,8 @@ class UserInfo(BaseModel):
     permission_level: int
     permission_name: str
     enabled: bool
+    custom_permissions: Optional[List[str]] = None
+    data_restrictions: Optional[Dict[str, List[str]]] = None
 
 
 class CreateUserRequest(BaseModel):
@@ -55,6 +70,8 @@ class CreateUserRequest(BaseModel):
     display_name: str
     permission_level: int
     enabled: bool = True
+    custom_permissions: Optional[List[str]] = None
+    data_restrictions: Optional[Dict[str, List[str]]] = None
 
 
 class UpdateUserRequest(BaseModel):
@@ -62,3 +79,5 @@ class UpdateUserRequest(BaseModel):
     permission_level: Optional[int] = None
     enabled: Optional[bool] = None
     password: Optional[str] = None
+    custom_permissions: Optional[List[str]] = None
+    data_restrictions: Optional[Dict[str, List[str]]] = None
